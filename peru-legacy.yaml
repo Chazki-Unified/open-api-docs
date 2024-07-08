@@ -1,0 +1,966 @@
+openapi: 3.0.0
+info:
+  title: Perú Legacy API
+  description: |
+    # Introduction
+    This documentation is only valid for Peru. In order to place orders 
+    for Chazki services, endpoints were set up to record delivery and check 
+    the status of orders.
+
+
+    These services are registered in the domain owned by chazki and are 
+    detailed in the section below.
+
+
+    Find more about [Chazki here](https://chazki.com/#/). 
+    See also our [Terms and Conditions](https://chazki.com/privacidad).
+
+
+    # ANEXO
+
+    ## States of Orders
+    
+
+    | Estado                  | Descripción                                |
+    | ----------------------- | ----------------------------------------------------------------------- |
+    |  NEW                    | The order is just entered into the system                               |
+    |  PRE_OFFERED            | Status prior to the order being sent to planning and offered            |
+    |  OFFERED                | The request is offered for a Chazki to accept                           |
+    |  WAITING                | The Chazki is on his way to pick up the order                           |
+    |  ARRIVED                | The Chazki arrives at the order pick-up point                           |
+    |  FAILED_PICK            | Error during order pick up                                              |
+    |  IN_PROGRESS            | The Chazki is on his way to deliver the order                           |
+    |  FAILED                 | Failure occurred during the delivery of the order                       |
+    |  COMPLETED              | The order is delivered successfully                                     |
+    |  REPROGRAMMED           | The order is rescheduled                                                |
+
+
+    ## Order Types
+
+
+    | Estado                  | Descripción                                |
+    | ----------------------- | ----------------------------------------------------------------------- |
+    |  REGULAR                | Order that can be delivered the next day after being requested          |
+    |  EXPRESS                | Order that is delivered in a maximum of 3 hours the same day it is made |
+    |  PROGRAMADO             | Order delivered according to three schedules: 9-13, 13-17, 17-21        |
+    |  FOOD                   | Food order scheduled to be delivered within one hour                    |
+    |  FOOD_PROGRAMADO        | Food order scheduled to be delivered at a specific time                 |
+    
+
+    ## Timezone
+
+
+    | Ciudad                  | UTC       | UTC DST (Verano) | Timezone    |
+    | ----------------------- | --------- | ---------------- | ------------------------------------------- |
+    |  Lima                | UTC -5       | UTC -5       | America/Lima                         |
+    |  Ciudad de Mexico    | UTC -6       | UTC -5       | America/Mexico_City                  |
+    |  Guadalajara         | UTC -6       | UTC -5       | America/Mexico_City                  |
+    |  Monterrey           | UTC -6       | UTC -5       | America/Monterrey                    |
+    |  Buenos Aires        | UTC -3       | UTC -3       | America/Argentina/Buenos_Aires       |
+
+
+    ### List of all recorded timezones
+
+
+    wiki: <a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones" target="_blank">Lista de todos los timezones</a>
+      
+
+    ## URL Encode
+
+
+    To send the timezone as a query param, it is necessary to encode the timezone.
+
+
+    | Timezone                  | Encode              |
+    | ------------------------- | -------------------------------------------- |
+    |  America/Lima                         | America%2fLima                      |
+    |  America/Mexico_City                  | America%2fMexico_City               |
+    |  America/Mexico_City                  | America%2fMexico_City               |
+    |  America/Monterrey                    | America%2fMonterrey                 |
+    |  America/Argentina/Buenos_Aires       | America%2fArgentina%2fBuenos_Aires  |
+  termsOfService: https://chazki.com/tyc.html
+  contact:
+    email: apiteam@swagger.io
+  version: 1.0.0
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: https://us-central1-chazki-link-dev.cloudfunctions.net/cf-custom-integrations-dev/api/legacy/peru
+    description: Legacy Development
+  - url: https://us-central1-chazki-link-beta.cloudfunctions.net/cf-custom-integrations-beta/api/legacy/peru
+    description: Legacy Beta
+  - url: https://us-central1-chazki-link.cloudfunctions.net/cf-custom-integrations/api/legacy/peru
+    description: Legacy Production
+tags:
+  - name: OrdersService
+    description: List of endpoints for register orders.
+  - name: AffiliatedService
+    description: List of endpoints for status and position 
+  - name: ImagesService
+    description: List of endpoints for images order.
+  - name: CoverageService
+    description: List of endpoints for coverage
+  - name: LabelServices
+    description: List of endpoints for label
+paths:
+  "/create/delivery-service":
+    post:
+      tags:
+        - OrdersService
+      description:
+        This endpoint allows you to register a delivery or route. 
+        Since the shipment is an arrangement, several points can be 
+        registered where you want the Chazki to arrive, therefore, a 
+        route is formed; otherwise, only one arrival point can be registered.
+      operationId: Create Order
+      security:
+        - enterprise-key: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatedBody'
+      responses:
+        "200":
+          description: Successfully response object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: number
+                    example: 1
+                  descriptionResponse:
+                    type: string
+                    example: "Order created succesfully"
+                  codeDelivery:
+                    type: array
+                    items:
+                      type: string
+                      example: TP22932
+                  relatedTrackCode:
+                    type: array
+                    items:
+                      type: string
+                      example: TP22932        
+        "400":
+          description: Query response with errors.
+          content:
+            application/json:
+              schema:
+                type: object
+                "$ref": "#/components/schemas/FailFnResponse"
+  "/cancel/order":
+    put:
+      tags:
+        - OrdersService
+      description:
+        This API allows us to cancel an order before it is OFFERED.
+      security:
+        - enterprise-key: []
+      operationId: Cancel Order
+      parameters:
+        - "$ref": '#/components/parameters/queryTrackCode'
+        - "$ref": '#/components/parameters/queryLanguage'
+      responses:
+        "200": 
+          description: Successfully response object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: number
+                    description: 'Code response (0: Order could not be cancelled, 1: Order cancelled, 99: ERROR).'
+                    example: 1
+                  deliveryResponse: 
+                    type: string
+                    description: Description of the reason for the response
+                    example: Se canceló correctamente la orden
+        "400":
+          description: Query response with errors.
+          content:
+            application/json:
+              schema:
+                type: object
+                "$ref": "#/components/schemas/FailFnResponse"
+  "/status/record":
+    get:
+      tags:
+        - OrdersService
+      description: |
+        This API allows us to see the states through which the delivery passed grouped 
+        by services. The grouping of services refers to the attempts that were made to 
+        deliver the delivery.
+      operationId: History State
+      security:
+        - enterprise-key: []
+      parameters:
+        - "$ref": '#/components/parameters/queryCode'
+        - "$ref": '#/components/parameters/queryTimeZone'
+      responses:
+        "200": 
+          description: Successfully response object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: number
+                    example: 1
+                  descriptionResponse: 
+                    type: string
+                    description: Response description
+                    example: SUCCESS
+                  message: 
+                    type: string
+                    description: message description
+                    example: ""
+                  "service_1":
+                    type: array
+                    description: Services through which the delivery passed
+                    items:
+                      oneOf:
+                        - "$ref": "#/components/schemas/service"
+                        - "$ref": "#/components/schemas/service_inc"
+                  "service_2":
+                    type: array
+                    description: Services through which the delivery passed
+                    items:
+                        type: object
+                        "$ref": "#/components/schemas/service"
+        "400":
+          description: Query response with errors.
+          content:
+            application/json:
+              schema:
+                type: object
+                "$ref": "#/components/schemas/FailFnResponse"
+  "/status/record/all":
+    get:
+      tags:
+        - OrdersService
+      description: |
+        This API allows us to see the states through which the delivery passed grouped 
+        by services. The grouping of services refers to the attempts that were made to 
+        deliver the delivery.
+      operationId: History Internal States
+      security:
+        - enterprise-key: []
+      parameters:
+        - "$ref": '#/components/parameters/queryCode'
+        - "$ref": '#/components/parameters/queryTimeZone'
+      responses:
+        "200": 
+          description: Successfully response object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: number
+                    example: 1
+                  descriptionResponse: 
+                    type: string
+                    description: Response description
+                    example: SUCCESS
+                  timezone: 
+                    type: string
+                    description: Indicates the timezone used, by default "UTC"
+                    example: "UTC"
+                  statusList:
+                    type: array
+                    description: Array with all states of the order (internal states of chazki)
+                    items:
+                        type: object
+                        "$ref": "#/components/schemas/serviceAll"
+        "400":
+          description: Query response with errors.
+          content:
+            application/json:
+              schema:
+                type: object
+                "$ref": "#/components/schemas/FailFnResponse"
+  "/tracking/select/delivery-code":
+    get:
+      tags:
+        - AffiliatedService
+      description:
+        This API allows us to see the movement of the Chazki and the status of the delivery.
+      operationId: Status-Position
+      security:
+        - enterprise-key: []
+      parameters:
+        - "$ref": '#/components/parameters/queryCode'
+        - "$ref": '#/components/parameters/queryTimeZone'
+        - "$ref": '#/components/parameters/queryLanguage'
+      responses:
+        "200": 
+          description: Successfully response object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  position:
+                    type: object
+                    description: Latitude and longitude points.
+                    properties:
+                      latitude:
+                        type: number
+                        example: 0
+                      longitude:
+                        type: number
+                        example: 0
+                  status:
+                    type: number
+                    description: State in which the delivery.
+                    example: ASSIGNED
+                  timestamp:
+                    type: string
+                    description: Date of the last update of the Chazki position.
+                    example: "2020-04-30T00:00:00.000Z"
+                  rd:
+                    type: string
+                    description: Name of the Chazki.
+                    example: Drive name 
+                  cel:
+                    type: string
+                    description: Chazki's phone.
+                    example: Number Phone 
+                  motivo: 
+                    type: string
+                    description: The reason is displayed if any failure occurred.
+                    example: Client not available
+        "400":
+          description: Query response with errors.
+          content:
+            application/json:
+              schema:
+                type: object
+                "$ref": "#/components/schemas/FailFnResponse"
+  "/tracking/images":
+    get:
+      tags:
+        - ImagesService
+      description:
+        This API allows us to see the photos taken by the chazki at the time of delivery.
+      operationId: Images Order
+      security:
+        - enterprise-key: []
+      parameters:
+        - "$ref": '#/components/parameters/queryCode'
+        - "$ref": '#/components/parameters/queryLanguage'
+      responses:
+        "200": 
+          description: Successfully response object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: number
+                    description: 'Code response (0: Error, 1: Ok).'
+                    example: 1
+                  deliveryResponse: 
+                    type: string
+                    description: Code description.
+                    example: SUCCESS
+                  status: 
+                    type: string
+                    description: Status of the order at the time of the request.
+                    example: "UTC"
+                  orderAssociated:
+                    type: string
+                    description: Base64 image of the chazki associated with the order.
+                    example: iVBORw0KGgoAAAANSUhEUgAAAl8AAAQ4CAIAAAC4
+                  orderImages:
+                    type: array
+                    description: Base64 images taken by the chazki associated with the order.
+                    items:
+                      type: string
+                      example: iVBORw0KGgoAAAANSUhEUgAAAl8AAAQ4CAIAAAC4
+        "400":
+          description: Query response with errors.
+          content:
+            application/json:
+              schema:
+                type: object
+                "$ref": "#/components/schemas/FailFnResponse"
+  "/tracking/label":
+    get:
+      tags:
+        - LabelServices
+      description:
+        This API allows us to obtain a label with the address of the order.
+      operationId: Single Label
+      security:
+        - enterprise-key: []
+      parameters:
+        - "$ref": '#/components/parameters/queryCode'
+      responses:
+        "200": 
+          description: Successfully response object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: number
+                    description: 'Code response (0: Error, 1: Ok).'
+                    example: 1
+                  deliveryResponse: 
+                    type: string
+                    description: PDF of the order label in base 64
+                    example: iVBORw0KGgoAAAANSUhEUgAAAl8AAAQ4CAIAAAC4
+        "400":
+          description: Query response with errors.
+          content:
+            application/json:
+              schema:
+                type: object
+                "$ref": "#/components/schemas/FailFnResponse"
+  "/tracking/label/all":
+    post:
+      tags:
+        - LabelServices
+      description:
+        This API allows us to obtain a label with the address of the order.
+      security:
+        - enterprise-key: []
+      operationId: Group Labels
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/labelsOrders'
+      responses:
+        "200": 
+          description: Successfully response object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: number
+                    description: 'Code response (0: Error, 1: Ok).'
+                    example: 1
+                  deliveryResponse: 
+                    type: string
+                    description: PDF of the order label in base 64
+                    example: iVBORw0KGgoAAAANSUhEUgAAAl8AAAQ4CAIAAAC4
+        "400":
+          description: Query response with errors.
+          content:
+            application/json:
+              schema:
+                type: object
+                "$ref": "#/components/schemas/FailFnResponse"
+  "/coverage/position":
+    get:
+      tags:
+        - CoverageService
+      description:
+        This API allows us to know if the coordinate is within the Chazki coverage.
+      security:
+        - enterprise-key: []
+      operationId: Position
+      parameters:
+        - "$ref": '#/components/parameters/queryLongitude'
+        - "$ref": '#/components/parameters/queryLatitude'
+        - "$ref": '#/components/parameters/queryLanguage'
+      responses:
+        "200": 
+          description: Successfully response object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: number
+                    description: 'Code response (0: Error, 1: Ok).'
+                    example: 1
+                  deliveryResponse: 
+                    type: string
+                    description: Description of the reason for the response
+                    example: La dirección está dentro de nuestras zonas de cobertura
+        "400":
+          description: Query response with errors.
+          content:
+            application/json:
+              schema:
+                type: object
+                "$ref": "#/components/schemas/FailCvResponse"
+  "/coverage/distance":
+    get:
+      tags:
+        - CoverageService
+      description:
+        This API allows us to know the distance that the Chazki must travel when delivering an order based 
+        on the origin and destination coordinates.
+      security:
+        - enterprise-key: []
+      operationId: Distance
+      parameters:
+        - "$ref": '#/components/parameters/queryOLng'
+        - "$ref": '#/components/parameters/queryOLat'
+        - "$ref": '#/components/parameters/queryDLng'
+        - "$ref": '#/components/parameters/queryDLat'
+      responses:
+        "200": 
+          description: Successfully response object.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    description: 'true: Valid request, false: Invalid request.'
+                    example: true
+                  code:
+                    type: number
+                    description: 'Response code (0: INVALID FIELDS, 1: SUCCESS, 99: SERVER ERROR).'
+                    example : 1
+                  message:
+                    type: string
+                    description: 'Description of the response, including an error message in case the request is invalid.'
+                    example: 'Coordinates found'
+                  distance: 
+                    type: number
+                    format: double
+                    description: 'Distance in kilometers with 2 decimal places of precision'
+                    example: 58.41
+                  untis:
+                    type: string
+                    description: 'Distance measurement unit (km)'
+                    example: 'km'
+        "400":
+          description: Query response with errors.
+          content:
+            application/json:
+              schema:
+                type: object
+                "$ref": "#/components/schemas/FailDistanceResponse"
+components:
+  schemas:
+    FailFnResponse:
+      type: object
+      properties:
+        response:
+          type: number
+          description: 'Code response (0: Error, 1: Ok).'
+          example: 0
+        descriptionResponse:
+          type: string
+          description: Bug Description.
+          example: El trackcode no existe o el enterpriseKey no es correcto
+    FailCvResponse:
+      type: object
+      properties:
+        response:
+          type: number
+          description: 'Code response (99: Error query: Error, 1: Ok).'
+          example: 99
+        descriptionResponse:
+          type: string
+          description: Bug Description.
+          example: No se han encontrado coordenadas
+    labelsOrders:
+      type: object
+      properties:
+        trackCodes:
+          type: array
+          description: List of registered trackCodes.
+          required: true
+          items:
+            type: string
+            example: NroOrden1
+    FailDistanceResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 'true: Valid request, false: Invalid request.'
+          example: false
+        code:
+          type: number
+          description: 'Response code (0: INVALID FIELDS, 1: SUCCESS, 99: SERVER ERROR).'
+          example : 0
+        message:
+          type: string
+          description: 'Description of the response, including an error message in case the request is invalid.'
+          example: 'Origin out of coverage'
+    CreatedBody:
+      type: array
+      items:
+        properties:
+          storeId:
+            type: string
+            description: 'Field referring to the store.'
+            example: 23434j3808e4b04d9cfec50112
+          branchId:
+            type: string
+            description: 'Place or branch from where the order originates.'
+            required: true
+            example: 234kj2l3k4j34e4b04d9cfec50115
+          deliveryTrackCode:
+            type: string
+            required: true
+            description: 'Code that identifies the order, this code must be unique.'
+            example : '0000001061015'
+          proofPayment:
+            type: string
+            required: true
+            description: 'Physical evidence that the packaging will have and will be delivered to the end customer. (BOLETA | FACTURA)'
+            example: 'BOLETA'
+          deliveryCost:
+            type: number
+            format: float
+            required: true
+            description: 'It is 0, unless the customer charges an additional amount for the delivery.'
+            example: 0
+          mode:
+            type: string
+            required: true
+            description: 'Depending on the type of service desired, it can be: REGULAR, EXPRESS, PROGRAMADO, PROGRAMADO_1, PROGRAMADO_2, PROGRAMADO_3'
+            example: 'REGULAR'
+          time: 
+            type: string
+            required: true
+            description: 'If it is "PROGRAMADO", indicate the hours "9-13", "13-17" or "17-21".'
+            example: '9-13'
+          paymentMethod:
+            type: string
+            required: true
+            description: 'It can be pagado or efectivo '
+            example: pagado
+          country:
+            type: string
+            required: true
+            description: 'Country where the delivery is generated (PE: Peru, MX: Mexico, ARG: Argentina)'
+            example: PE
+          listItemSold:
+            type: array
+            description: 'List of items sent as part of the delivery'
+            items:
+              properties:
+                name:
+                  type: string
+                  required: true
+                  description: 'Product description'
+                  example: Asus - Tablet Memo Pad ME70CX-1A022A 7 Android 4.3 1GB 8GB - Negro
+                currency:
+                  type: string
+                  required: true
+                  description: 'Coin. Default "PEN"'
+                  example: PEN
+                price:
+                  type: number
+                  format: float
+                  description: 'Price. If it is effective, it must be the real price, or a reference price if it is paid.'
+                  example: 255
+                weight:
+                  type: number
+                  format: double
+                  description: 'Referential weight of the package.'
+                  example: 0.9
+                volumen:
+                  type: number
+                  format: double
+                  description: 'Referential weight of the package, data for the billing calculation.'
+                  example: 0.9
+                quantity:
+                  type: number
+                  format: integer
+                  required: true
+                  description: 'Quantity of items.'
+                  example: 1
+                unity:
+                  type: string
+                  required: true
+                  description: 'Unit of outer pack.'
+                  example: Paquete
+                size:
+                  type: string
+                  required: true
+                  description: 'Order unit of measure (XS, S, M, L) '
+                  example: S
+          notes:
+            type: string
+            description: 'Additional data, which facilitates delivery. It can be empty'
+            example: El paquete lo deja en la recepción del edificio
+          documentNumber:
+            type: string
+            required: true
+            description: 'Customer document'
+            example: 12345678987
+          name_tmp:
+            type: string
+            required: true
+            description: 'Name of the person receiving the order/Natural Person'
+            example: ''
+          lastName:
+            type: string
+            required: true
+            description: 'Name of the person receiving the order/Natural Person'
+            example: ''
+          companyName:
+            type: string
+            required: true
+            description: 'In case the shipment is made to a Client company '
+            example: 'Zapateria CCE'
+          email:
+            type: string
+            required: true
+            description: 'Client emal'
+            example: 'cce@gmail.co'
+          phone:
+            type: string
+            required: true
+            description: 'Client phone'
+            example: '989555879'
+          documentType:
+            type: string
+            required: true
+            description: 'Tipo de documento del cliente DNI, RUC y CDE (Carnet de extranjería)'
+            example: 'RUC'
+          addressClient:
+            type: array
+            description: 'Info CLient'
+            items:
+              properties:
+                name:
+                  type: string
+                  required: true
+                  description: 'Direction client'
+                  example: Calle Bronzino 501
+                nivel_2:
+                  type: string
+                  required: true
+                  description: 'Department of the client address'
+                  example: LIMA
+                nivel_3:
+                  type: string
+                  required: true
+                  description: 'Province of the client address'
+                  example: LIMA
+                nivel_4:
+                  type: string
+                  required: true
+                  description: 'District of the client address '
+                  example: SAN BORJA
+                reference:
+                  type: string
+                  required: true
+                  description: 'Reference to the address of the client'
+                  example: Alt. Cavallini
+                alias:
+                  type: string
+                  required: true
+                  description: 'Alias of the sending point'
+                  example: Oficina central
+                position:
+                  type: object
+                  required: true
+                  properties:
+                    latitude:
+                      type: number
+                      format: double
+                      required: true
+                      description: 'Latitude, if unknown, place 0'
+                      example: 0
+                    longitude:
+                      type: number
+                      format: double
+                      required: true
+                      description: 'Longitude, if unknown, place 0 '
+                      example: 0
+    service:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Delivery status
+          example: Nuevo
+        date:
+          type: string
+          description: Status date
+          example: "2020-04-30T00:00:00.000Z"
+        reason:
+          type: string
+          description: |
+            Only for failed states. Reason if the status was "Pickup Failed" 
+            or "Delivery Failed"
+          example: ""
+        reasonCode:
+          type: string
+          description: |
+            Only for failed states. Reason code if the status was "Pickup Failed" 
+            or "Delivery Failed"
+          example: ""
+    service_inc:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Delivery status
+          example: Fallo Recojo
+        date:
+          type: string
+          description: Status date
+          example: "2020-04-30T00:00:00.000Z"
+        reasonCode:
+          type: string
+          description: |
+            Only for failed states. Reason code if the status was "Pickup Failed" 
+            or "Delivery Failed"
+          example: "FT"
+        reason:
+          type: string
+          description: |
+            Only for failed states. Reason if the status was "Pickup Failed" 
+            or "Delivery Failed"
+          example: "Falta de Tiempo"
+    serviceAll:
+      type: object
+      properties:
+        status:
+          type: string
+          description: Delivery status
+          example: NEW
+        date:
+          type: string
+          description: Status date
+          example: "2020-04-30T00:00:00.000Z"
+        attemptNumber:
+          type: number
+          description: |
+            Indicates the number of delivery attempts, it increases based on rescheduling. 
+            By default 1
+          example: 1
+        reason:
+          type: string
+          description: |
+            Only for failed states. Reason if the status was "Pickup Failed" 
+            or "Delivery Failed"
+          example: ""
+        reasonCode:
+          type: string
+          description: |
+            Only for failed states. Reason code if the status was "Pickup Failed" 
+            or "Delivery Failed"
+          example: ""
+  parameters:
+    queryCode:
+      name: code
+      in: query
+      description: Delivery track code.
+      required: true
+      style: form
+      explode: false
+      schema:
+        type: string
+    queryTrackCode:
+      name: trackCode
+      in: query
+      description: Delivery track code.
+      required: true
+      style: form
+      explode: false
+      schema:
+        type: string
+    queryTimeZone:
+      name: timezone
+      in: query
+      description: Timezone of city. [Anexo Timezone](https://chazki.com/#/)
+      required: false
+      style: form
+      explode: false
+      schema:
+        type: string
+    queryLanguage:
+      name: language
+      in: query
+      description: Language for message response.
+      required: false
+      style: form
+      explode: false
+      schema:
+        type: string
+    queryLongitude:
+      name: longitude
+      in: query
+      description: Coordinate longitude.
+      required: true
+      style: form
+      explode: false
+      schema:
+        type: number
+        format: double
+    queryLatitude:
+      name: latitude
+      in: query
+      description: Coordinate latitude.
+      required: true
+      style: form
+      explode: false
+      schema:
+        type: number
+        format: double
+    queryOLat:
+      name: oLat
+      in: query
+      description: Coordinate origin latitude.
+      required: true
+      style: form
+      explode: false
+      schema:
+        type: number
+        format: double
+    queryOLng:
+      name: oLng
+      in: query
+      description: Coordinate origin longitude.
+      required: true
+      style: form
+      explode: false
+      schema:
+        type: number
+        format: double
+    queryDLat:
+      name: dLat
+      in: query
+      description: Coordinate destination latitude.
+      required: true
+      style: form
+      explode: false
+      schema:
+        type: number
+        format: double
+    queryDLng:
+      name: dLng
+      in: query
+      description: Coordinate destination longitude.
+      required: true
+      style: form
+      explode: false
+      schema:
+        type: number
+        format: double
+  securitySchemes:
+    enterprise-key:
+      name: enterprise-key
+      type: apiKey
+      in: header
+      description: Access key for api.
+      example: xxXXxxXX-xXx-xXxX-XxXx-xxXXxxXXxxXX

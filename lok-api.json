@@ -1,0 +1,6846 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Lok API Reference",
+    "version": "0.28.0",
+    "description": "# Overview\n\nThe Lok API is organized around [REST](http://en.wikipedia.org/wiki/Representational_State_Transfer),\nhaving resource-oriented URLs, accepts and returns [JSON-encoded](http://www.json.org/) bodies,\nand uses standard HTTP response codes, authentication and verbs. Dates are in [UTC](https://en.wikipedia.org/wiki/Coordinated_Universal_Time) time standard.\n\nThis API allows the integration of your company systems with the rental of lockers:\n\n- Get lockers locations and its availability\n- Manage reservations on your lockers\n- Get usage reports\n- Manage notifications settings\n\n# Authentication\n\nLok API uses [OAuth](http://tools.ietf.org/html/rfc6749) scheme, using access tokens to\n authenticate requests. When you request access to Lok API, you will get a `client_id` and a `client_secret`.\nWith these credentials you can [get an access token](#operation/postOauthToken) which should be\nincluded in each request:\n\n```shell\nGET /api/v2/some_resource HTTP/2\nHost: api.clicknbox.com\nAuthorization: Bearer youraccesstoken \n```\n\n> Your client credentials grant access for a trusted entity, so make sure you store them securely.\n\nAll API requests must be made over [HTTPS](http://en.wikipedia.org/wiki/HTTP_Secure). Calls made\nover plain HTTP will fail. API requests without authentication will also fail.\n\n## User scopes\n\nAn access token has the scope of it's user. Each route has the following security scheme:\n\n<!-- ReDoc-Inject: <security-definitions> -->\n\nEvery scope has the following allowed actions:\n\n- **admin** is the Lok administrator. Has read access to all reservations and lockers.\n- **owner** is the top-level user of the company. This scope grants access to all the lockers that are\nmanaged by your company.\n- **employee** grants access to one location only.\n- **reporter** grants read access to the lockers and reservations managed by your company.\n- **seller** similarly as an _owner_, is a top-level user who has access to Lok public network.\n\n# Errors\n\nLok uses conventional [HTTP response codes](https://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html) to indicate the\nsuccess or failure of an API request. However, the field `status_code` is always returned\nfor redundancy. \n\nResponses with status other than `2xx` are error responses: \n\n- codes in the `4xx` range indicate an error related to information provided\n- codes in the `5xx` range indicate an error with Lok servers.\n\nWhenever you get an error response, it will have the following properties:\n\n- `type` (_string_): The type of error returned.\n- `message` (_string_): A human-readable message providing more details about the error.\n- `data` (_object_): Some error types include additional details of the error.\n\n**Response example**\n\n```json\n{\n  \"status_code\": 404,\n  \"type\": \"ENTITY_NOT_FOUND\",\n  \"message\": \"Location not found\",\n  \"data\": {\n     \"id\": \"11446958822f\"\n  }\n}\n```\n\n## Error Types\n\n### Request errors\n\n| Type                 | Description                |\n| ---------------------|----------------------------|\n| `NOT_FOUND`            | Requested resource was not found                                            |\n| `ENTITY_NOT_FOUND`     | Requested entity was not found                                              |\n| `INVALID_REQUEST`      | Request was invalid: missing fields, wrong types or is semantically wrong |\n\n### Authorization errors\n\n| Type                 | Description                |\n| ---------------------|----------------------------|\n| `GRANT_TOKEN`          | The Lok grant for the operation is invalid       |\n| `INSUFFICIENT_SCOPE`   | Authorization is insufficient |\n| `INVALID_CLIENT`       | Client authentication failed |\n| `INVALID_GRANT`        | Authorization is invalid, expired or revoked |\n| `INVALID_TOKEN`        | Provided token is expired, revoked or invalid |\n| `UNAUTHORIZED_CLIENT`  | The client is not authorized to use requested grant |\n\n### Reservation errors\n\n| Type                 | Description                |\n| ---------------------|----------------------------|\n| `INVALID_RESERVATION`  | Requested operation cannot be applied to the reservation |\n| `UNIQUE_SHIPMENT`      | Provided shipment id is already used within your company |\n| `BOX_INCOMPATIBLE`     | Provided package dimensions are incompatible with our box types |\n| `NO_CAPACITY`          | The location doesn't have a box available at the moment|\n| `LOCATION_LOCKED`      | The location is temporarily locked |\n| `INVALID_DUE_DATE`     | Provided delivery date is invalid or in the past |\n\n### Logistic errors\n| Type                 | Description                |\n| ---------------------|----------------------------|\n| `INVALID_ADDRESS`  | Provided address is invalid, too abstract or has multiple matches |\n\n\n### Lok server errors\n\n| Type                 | Description                |\n| ---------------------|----------------------------|\n| `REQUEST_TIMEOUT`      | We were unable to sync the data with the locker |\n| `UNKNOWN_ERROR`        | An unexpected exception on Lok servers |\n\n### Third-party errors\n\n| Type                 | Description                |\n| ---------------------|----------------------------|\n| `FAILED_DEPENDENCY`  | We were unable to complete the transaction with an external vendor |\n\n# Webhook\n\nA Webhook is a callback URL to which our systems send the different events related to your reservations. On each call you can\nnotify your user or operations team and create reports of events.\n\nYou can [manage your company's webhook](/#tag/webhook) settings and subscribe to specific events only or\nenable/disable it. When adding your webhook for the first time, a secret will be generated\nthat you can use later to validate incoming requests.\n\n## Set up a webhook\n\nData will be sent via HTTP POST method in JSON format and UTF-8 encoding. To confirm that you received a \nnotification successfully, your server must return a 200 (OK) HTTP status code, any other status will be\ntreated as an error and the request will be retried up to 50 times in increasing intervals.\n\nExample with javascript:\n\n```\nvar data = typeof req.body == 'string' ? JSON.parse(req.body) : req.body;\n\nif (data.status == 'picked_up') {\nvar reservation_id = data.reservation_id;\n//...\n}\n```\n\n## Notification payload\n\nThe information of the notification will have the following structure:\n\n```\n{\n  \"reservation_id\": \"5ccc9e33a97e2f8226ba36d2\",\n  \"shipment_id\": \"Order 557\",\n  \"status\": “delivered”,\n  \"status_message\": \"Package received in the locker\",\n  \"t\": 1614202849096,\n}\n```\n\n**reservation_id**\n- Type: String\n- Description: The reservation identifier that should be used in subsequent API calls\n\n**shipment_id**\n-   Type: String\n-   Description: Identifier that the company assigned to the reservation\n\n**status**\n-   Type: String\n-   Description: Current status of the reservation. Possible values are:\n    - _reserved_: Reservation creation confirmation. This event is triggered whenever a new reservation is created or a pre-reservation is confirmed.\n    - _undelivered_: Package waiting to be delivered\n    - _delivered_: Package delivered in the locker\n    - _unpicked_: Package waiting to be picked up\n    - _reopened_: Package first alteration in the locker\n    - _reopened2_: Second package alteration in the locker\n    - _cancelled_: Reservation cancelled confirmation. This event is triggered either with an API cancellation or by using the cancellation token.\n    - _picked_up_: Package was picked up\n\n**status_message**\n-   Type: String\n-   Description: Human-readable description of the status\n\n**t**\n- Type: Number\n- Description: Event triggered timestamp\n\n> The `undelivered` and `unpicked` events are notified daily until the package is\n> delivered or picked up, respectively.\n\n## Notification signature\n\nTo verify that the request came from our servers, you can validate the body using\nthe `secret` granted upon webhook creation:\n\n```js\nconst crypto = require('crypto');\n\nconst hmac = crypto.createHmac('sha256', YOUR_WEBHOOK_SECRET);\n\nhmac.update(req.body);\nconst signature = hmac.digest('base64');\n```\n\nand compare `signature` against `Lok-Signature` header.\n",
+    "contact": {
+      "name": "API Support",
+      "url": "https://lok-hub.com"
+    },
+    "x-logo": {
+      "url": "lok.png",
+      "altText": "Lok"
+    }
+  },
+  "x-tagGroups": [
+    {
+      "name": "Authentication",
+      "tags": [
+        "auth"
+      ]
+    },
+    {
+      "name": "Cloud",
+      "tags": [
+        "pre-reservation",
+        "cnc",
+        "location"
+      ]
+    },
+    {
+      "name": "Mailbox",
+      "tags": [
+        "directory",
+        "reservation"
+      ]
+    },
+    {
+      "name": "Logistic",
+      "tags": [
+        "logistic",
+        "address"
+      ]
+    },
+    {
+      "name": "Administration",
+      "tags": [
+        "company_notifications",
+        "reports",
+        "mail",
+        "webhook"
+      ]
+    }
+  ],
+  "tags": [
+    {
+      "name": "auth",
+      "x-displayName": "OAuth2"
+    },
+    {
+      "name": "firmware",
+      "x-displayName": "Firmware",
+      "description": "Communication with master and slave rpi"
+    },
+    {
+      "name": "health",
+      "x-displayName": "Health"
+    },
+    {
+      "name": "location",
+      "x-displayName": "Location"
+    },
+    {
+      "name": "admin_locations",
+      "x-displayName": "Locations"
+    },
+    {
+      "name": "towers",
+      "x-displayName": "Towers"
+    },
+    {
+      "name": "reservation",
+      "x-displayName": "Reservation"
+    },
+    {
+      "name": "cnc",
+      "x-displayName": "Reservation",
+      "description": "Reservation operations available for locations with Cloud model"
+    },
+    {
+      "name": "pre-reservation",
+      "x-displayName": "Pre-reservation",
+      "description": "A pre-reservation allows you to request a locker box ahead of time.\n                Lok tries to hold an available space based on the information passed, but there is no guarantee that the reservation will be able to be completed.\n                A pre-reservation does not need all of the package information on creation and can be updated when you know more about delivery date and package's dimensions."
+    },
+    {
+      "name": "logistic",
+      "x-displayName": "Shipment",
+      "description": "Logistic services allow you to request a shipping for a pre-reservation. When you are ready to ship the package,\n            you can quote the shipping and request the tracking number. The package's weight is required for this operations since the\n            carrier costs depend on it."
+    },
+    {
+      "name": "address",
+      "x-displayName": "Addresses",
+      "description": "Manage recurrent addresses used for logistic services"
+    },
+    {
+      "name": "directory",
+      "x-displayName": "Directories",
+      "description": "Manage locker directories"
+    },
+    {
+      "name": "mailbox_notification",
+      "x-displayName": "Notifications",
+      "description": "Available notifications"
+    },
+    {
+      "name": "geocoding",
+      "x-displayName": "Geocoding",
+      "description": "Google Geocoding API operations"
+    },
+    {
+      "name": "company_notifications",
+      "x-displayName": "Company Notification",
+      "description": "E-mails for operator and administrator of the company to whom the tokens of each reservation\n            should be sent."
+    },
+    {
+      "name": "reports",
+      "x-displayName": "Reports",
+      "description": "Available reports on company activity. All reports are in CSV format."
+    },
+    {
+      "name": "settings",
+      "x-displayName": "Settings",
+      "description": "Catalogue of Lok settings"
+    },
+    {
+      "name": "companies",
+      "x-displayName": "Companies",
+      "description": "Companies management"
+    },
+    {
+      "name": "webhook",
+      "x-displayName": "Webhook",
+      "description": "Company webhook settings"
+    },
+    {
+      "name": "mail",
+      "x-displayName": "Mailing",
+      "description": "Available mailing actions"
+    },
+    {
+      "name": "users",
+      "x-displayName": "User permissions",
+      "description": "User API credentials and applications management"
+    }
+  ],
+  "paths": {
+    "/company/action_logs": {
+      "get": {
+        "summary": "Activity log",
+        "operationId": "getCompanyAction_logs",
+        "description": "Get last 1000 logs of user activity",
+        "tags": [
+          "reports"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "admin",
+              "owner"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model2"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/directories": {
+      "get": {
+        "summary": "Get directories",
+        "operationId": "getCompanyDirectories",
+        "description": "Returns all directories associated to the user company",
+        "parameters": [
+          {
+            "description": "Page to return",
+            "x-constraint": {
+              "sign": "positive"
+            },
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "description": "Number of results per page",
+            "x-constraint": {
+              "sign": "positive"
+            },
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 15
+            }
+          }
+        ],
+        "tags": [
+          "directory"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "owner",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create directory",
+        "operationId": "postCompanyDirectories",
+        "description": "Create and associates a directory to the company",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryBody"
+              }
+            }
+          }
+        },
+        "tags": [
+          "directory"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "owner",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model13"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error5"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "Unable to complete request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error6"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/locations": {
+      "get": {
+        "summary": "Get locations",
+        "operationId": "getCompanyLocations",
+        "description": "Returns all locations where the user can operate",
+        "parameters": [
+          {
+            "description": "Search by internal name",
+            "name": "internal_name",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 50
+            }
+          },
+          {
+            "description": "Page to return",
+            "x-constraint": {
+              "sign": "positive"
+            },
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "description": "Number of results per page",
+            "x-constraint": {
+              "sign": "positive"
+            },
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 15
+            }
+          }
+        ],
+        "tags": [
+          "location"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "reporter",
+              "owner",
+              "seller",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/notification_emails": {
+      "get": {
+        "summary": "Get company notifications emails",
+        "operationId": "getCompanyNotification_emails",
+        "tags": [
+          "company_notifications"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "employee",
+              "owner",
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model4"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Edit company notifications emails",
+        "operationId": "putCompanyNotification_emails",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Model27"
+              }
+            }
+          }
+        },
+        "tags": [
+          "company_notifications"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "owner",
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model4"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/pre_reservations": {
+      "get": {
+        "summary": "Get all company pre-reservations",
+        "operationId": "getCompanyPre_reservations",
+        "description": "Returns all pre-reservations owned by the company",
+        "parameters": [
+          {
+            "description": "Whether to return only active reservations.",
+            "name": "only_active",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          {
+            "description": "Filter by reservation status",
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "finished"
+              ]
+            }
+          },
+          {
+            "description": "Search by shipment id",
+            "x-convert": {
+              "trim": true
+            },
+            "name": "shipment_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Oldest reservation creation date to return in unix time",
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "description": "Sorting options",
+            "x-convert": {
+              "trim": true
+            },
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^((-|\\+){0,1}[a-z_]+,)*((-|\\+){0,1}[a-z_]+)$"
+            }
+          },
+          {
+            "description": "Page to return",
+            "x-constraint": {
+              "sign": "positive"
+            },
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "description": "Number of results per page",
+            "x-constraint": {
+              "sign": "positive"
+            },
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 15
+            }
+          }
+        ],
+        "tags": [
+          "pre-reservation"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "admin",
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReservationListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/reservations": {
+      "get": {
+        "summary": "Get all company reservations",
+        "operationId": "getCompanyReservations",
+        "description": "Returns all reservations owned by the company",
+        "parameters": [
+          {
+            "description": "Whether to return only active reservations.",
+            "name": "only_active",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          {
+            "description": "Filter by reservation status",
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "finished"
+              ]
+            }
+          },
+          {
+            "description": "Search by shipment id",
+            "x-convert": {
+              "trim": true
+            },
+            "name": "shipment_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Oldest reservation creation date to return in unix time",
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "description": "Sorting options",
+            "x-convert": {
+              "trim": true
+            },
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^((-|\\+){0,1}[a-z_]+,)*((-|\\+){0,1}[a-z_]+)$"
+            }
+          },
+          {
+            "description": "Page to return",
+            "x-constraint": {
+              "sign": "positive"
+            },
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "description": "Number of results per page",
+            "x-constraint": {
+              "sign": "positive"
+            },
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 15
+            }
+          }
+        ],
+        "tags": [
+          "cnc",
+          "reservation"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "admin",
+              "reporter",
+              "owner",
+              "seller",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReservationListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/webhook": {
+      "get": {
+        "summary": "Get webhook settings",
+        "operationId": "getCompanyWebhook",
+        "tags": [
+          "webhook"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "owner",
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model7"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update webhook settings",
+        "operationId": "putCompanyWebhook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Model28"
+              }
+            }
+          }
+        },
+        "tags": [
+          "webhook"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "owner",
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model7"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/token": {
+      "get": {
+        "summary": "Validates token",
+        "operationId": "getOauthToken",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Access token granted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model8"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Get an access token",
+        "operationId": "postOauthToken",
+        "description": "Machine-to-machine authentication",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "grant_type": {
+                    "type": "string",
+                    "enum": [
+                      "client_credentials"
+                    ]
+                  },
+                  "client_id": {
+                    "type": "string"
+                  },
+                  "client_secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant_type",
+                  "client_id",
+                  "client_secret"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Access token granted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model8"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Shell",
+            "label": "Client credentials grant",
+            "source": "POST /api/v2/oauth/token HTTP/2\nHost: api.clicknbox.com\nContent-Type: application/x-www-form-urlencoded\n\ngrant_type:client_credentials\nclient_id:your-client-id\nclient_secret:your-client-secret"
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Revoke an access token",
+        "operationId": "deleteOauthToken",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model11"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/user": {
+      "get": {
+        "summary": "Get authenticated user",
+        "operationId": "getOauthUser",
+        "description": "Returns information about the user to whom the access token belongs to",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model9"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reservations/{reservation_id}": {
+      "get": {
+        "summary": "Get a reservation",
+        "operationId": "getReservationsReservation_id",
+        "description": "Returns a reservation with its tokens.",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "reservation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_tokens",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "tags": [
+          "cnc",
+          "reservation"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "admin",
+              "reporter",
+              "owner",
+              "seller",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model10"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error3"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update a pre-reservation",
+        "operationId": "putReservationsReservation_id",
+        "description": "Allows to update reservation data and/or post-pone delivery date",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "reservation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreReservationUpdate"
+              }
+            }
+          }
+        },
+        "tags": [
+          "pre-reservation"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model21"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error3"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error17"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The dimensions provided cannot be held by any box",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error9"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Cancel a reservation",
+        "operationId": "deleteReservationsReservation_id",
+        "description": "Cancel a reservation while it has not been delivered",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "reservation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "tags": [
+          "cnc"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "owner",
+              "seller",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReservationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error3"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The reservation is in an ongoing state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error18"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/shipping/reservations": {
+      "get": {
+        "summary": "Get reservations with shipment",
+        "operationId": "getShippingReservations",
+        "parameters": [
+          {
+            "description": "Whether to return only active reservations.",
+            "name": "only_active",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          {
+            "description": "Filter by reservation status",
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "finished"
+              ]
+            }
+          },
+          {
+            "description": "Search by shipment id",
+            "x-convert": {
+              "trim": true
+            },
+            "name": "shipment_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Oldest reservation creation date to return in unix time",
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "description": "Sorting options",
+            "x-convert": {
+              "trim": true
+            },
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^((-|\\+){0,1}[a-z_]+,)*((-|\\+){0,1}[a-z_]+)$"
+            }
+          },
+          {
+            "description": "Page to return",
+            "x-constraint": {
+              "sign": "positive"
+            },
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "description": "Number of results per page",
+            "x-constraint": {
+              "sign": "positive"
+            },
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 15
+            }
+          }
+        ],
+        "tags": [
+          "logistic"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reservations with shipping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/action_logs/csv": {
+      "get": {
+        "summary": "Request report of user activity",
+        "operationId": "getCompanyAction_logsCsv",
+        "description": "Enqueues the delivery of a complete log report with provided dates",
+        "parameters": [
+          {
+            "description": "Oldest log creation date to return in unix time",
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "default": 1653342119905
+            }
+          },
+          {
+            "description": "Newest log creation date to return in unix time",
+            "name": "until",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "default": "now"
+            }
+          }
+        ],
+        "tags": [
+          "reports"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "admin",
+              "owner"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model11"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/directories/{directory_id}": {
+      "get": {
+        "summary": "Get a directory",
+        "operationId": "getCompanyDirectoriesDirectory_id",
+        "description": "Return requested directory",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "directory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "tags": [
+          "directory"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "owner",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model13"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error3"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update directory",
+        "operationId": "putCompanyDirectoriesDirectory_id",
+        "description": "api<br/><br/>directory",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "directory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryUpdateBody"
+              }
+            }
+          }
+        },
+        "tags": [
+          "directory"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "owner",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model13"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error5"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "Unable to complete request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error6"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/locations/{location_id}": {
+      "get": {
+        "summary": "Get a location",
+        "operationId": "getCompanyLocationsLocation_id",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "location_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "tags": [
+          "location"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "reporter",
+              "owner",
+              "seller",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model14"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/reports/recent_activity": {
+      "get": {
+        "summary": "Get company recent activity",
+        "operationId": "getCompanyReportsRecent_activity",
+        "description": "Generates a CSV with reservations from two days ago to current date in the following format:<br/><br/>\n```csv\n\"Id de pedido\", \"Locker\", \"Huso horario\", \"Torre\", \"Casillero\", \"Reservación\", \"Depósito\", \"Recolección\", \"Cancelación\"\n\"DFUL\", \"Antara\", \"America/Mexico_City\", \"00010003\", \"00010003002\", \"2020-10-10T15:52:30.000Z\", \"2020-10-10T15:52:30.000Z\", \"2020-10-10T15:52:30.000Z\", \"2020-10-10T15:52:30.000Z\"\n```\n",
+        "tags": [
+          "reports"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "employee",
+              "owner",
+              "seller",
+              "reporter"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "headers": {
+              "Content-Disposition": {
+                "$_root": {
+                  "_types": {},
+                  "version": "17.3.0",
+                  "cache": {}
+                },
+                "$_temp": {
+                  "ruleset": false,
+                  "whens": {}
+                },
+                "_ids": {
+                  "_byId": {},
+                  "_byKey": {},
+                  "_schemaChain": false
+                },
+                "_rules": [],
+                "_singleRules": {},
+                "_refs": {
+                  "refs": []
+                },
+                "_flags": {},
+                "$_terms": {
+                  "examples": null,
+                  "metas": [],
+                  "notes": [],
+                  "tags": []
+                },
+                "$_super": {},
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/locations/{location_id}/reservations": {
+      "get": {
+        "summary": "Get location reservations",
+        "operationId": "getLocationsLocation_idReservations",
+        "description": "Returns all reservations in the location",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "location_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Whether to return only active reservations.",
+            "name": "only_active",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          {
+            "description": "Filter by reservation status",
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "finished"
+              ]
+            }
+          },
+          {
+            "description": "Search by shipment id",
+            "x-convert": {
+              "trim": true
+            },
+            "name": "shipment_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Oldest reservation creation date to return in unix time",
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "description": "Sorting options",
+            "x-convert": {
+              "trim": true
+            },
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^((-|\\+){0,1}[a-z_]+,)*((-|\\+){0,1}[a-z_]+)$"
+            }
+          },
+          {
+            "description": "Page to return",
+            "x-constraint": {
+              "sign": "positive"
+            },
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "description": "Number of results per page",
+            "x-constraint": {
+              "sign": "positive"
+            },
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 15
+            }
+          }
+        ],
+        "tags": [
+          "cnc",
+          "reservation"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "admin",
+              "reporter",
+              "owner",
+              "seller",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReservationListResponse1"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error3"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a reservation",
+        "operationId": "postLocationsLocation_idReservations",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "location_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReservationRequest"
+              }
+            }
+          }
+        },
+        "tags": [
+          "cnc"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "owner",
+              "seller",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model21"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient scope in requested location",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error10"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error3"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Shipment id already exists within the company",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error11"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unable to assign a box with required size",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error12"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "Unable to complete request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error6"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reservations/{reservation_id}/label": {
+      "get": {
+        "summary": "Get reservation shipping label",
+        "operationId": "getReservationsReservation_idLabel",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "reservation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "tags": [
+          "logistic"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model15"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error4"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/shipping_order": {
+      "post": {
+        "summary": "Create a shipping order getting a label as response",
+        "operationId": "postShipping_order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Model17"
+              }
+            }
+          }
+        },
+        "tags": [
+          "logistic"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model15"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error4"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/locations/available": {
+      "post": {
+        "summary": "Locations for pre-reservations",
+        "operationId": "postLocationsAvailable",
+        "description": "Returns locations available based on a geographical search. Either a zip code or custom center coordinates are required.<br/><br/>The response includes a token that can be used later to create a pre-reservation.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Model18"
+              }
+            }
+          }
+        },
+        "tags": [
+          "location"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model19"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unable to find a box with required size or provided zip code is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error7"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error8"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/directories/csv": {
+      "post": {
+        "summary": "Create directory",
+        "operationId": "postCompanyDirectoriesCsv",
+        "description": "Import a csv file to set contacts in a new directory or some already created",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Model20"
+              }
+            }
+          }
+        },
+        "tags": [
+          "directory"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "owner",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model11"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error5"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "Unable to complete request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error6"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/locations/{location_id}/pre_reservation": {
+      "post": {
+        "summary": "Create a pre-reservation",
+        "operationId": "postLocationsLocation_idPre_reservation",
+        "description": "Creates a pre-reservation in a [granted location](#operation/postLocationsAvailable).",
+        "parameters": [
+          {
+            "description": "JWT granted for this operation",
+            "name": "lok-grant-token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-_=]+\\.[A-Za-z0-9-_=]+\\.?[A-Za-z0-9-_.+/=]*$"
+            }
+          },
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "location_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreReservationRequest"
+              }
+            }
+          }
+        },
+        "tags": [
+          "pre-reservation"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model21"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error3"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The dimensions provided cannot be held by any box",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error9"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/locations/{location_id}/shipping": {
+      "post": {
+        "summary": "Create a shipping order",
+        "operationId": "postLocationsLocation_idShipping",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "location_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Model22"
+              }
+            }
+          }
+        },
+        "tags": [
+          "logistic"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model23"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error4"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reservations/{reservation_id}/shipping": {
+      "post": {
+        "summary": "Request shipment",
+        "operationId": "postReservationsReservation_idShipping",
+        "description": "Requests a shipping for a pre-reservation. All logistic-related data is saved under `additional` field.<br/><br/>This operation enqueues the pre-reservation confirmation, ensuring there is an available box on delivery.",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "reservation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Model24"
+        },
+        "tags": [
+          "logistic"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model25"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Reservation cannot longer be updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error13"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Reservation has missing information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error14"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "Failed to create order with carrier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error15"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reservations/{reservation_id}/shipping/quotation": {
+      "post": {
+        "summary": "Quote shipment",
+        "operationId": "postReservationsReservation_idShippingQuotation",
+        "description": "Requests a shipping quote for a pre-reservation",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "reservation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Model24"
+        },
+        "tags": [
+          "logistic"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model26"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error16"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/webhook/status": {
+      "put": {
+        "summary": "Toggle webhook status",
+        "operationId": "putCompanyWebhookStatus",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Model29"
+              }
+            }
+          }
+        },
+        "tags": [
+          "webhook"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "owner",
+              "seller"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model11"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/company/directories/{directory_id}/contacts": {
+      "put": {
+        "summary": "Overwrite contacts",
+        "operationId": "putCompanyDirectoriesDirectory_idContacts",
+        "parameters": [
+          {
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            },
+            "name": "directory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Model30"
+              }
+            }
+          }
+        },
+        "tags": [
+          "directory"
+        ],
+        "security": [
+          {
+            "oauth2": [
+              "owner",
+              "employee"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Model32"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authorization is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error1"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authorization scope is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error2"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error5"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "Unable to complete request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error6"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-alt-definitions": {
+    "BoxSizeRequest": {
+      "type": "object",
+      "description": "Package dimensions",
+      "properties": {
+        "width": {
+          "type": "number",
+          "description": "Package width in cm",
+          "minimum": 1,
+          "maximum": 38,
+          "x-constraint": {
+            "precision": 2
+          }
+        },
+        "height": {
+          "type": "number",
+          "description": "Package height in cm",
+          "minimum": 1,
+          "maximum": 34,
+          "x-constraint": {
+            "precision": 2
+          }
+        },
+        "length": {
+          "type": "number",
+          "description": "Package length in cm",
+          "minimum": 1,
+          "maximum": 56,
+          "x-constraint": {
+            "precision": 2
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://sandbox.lok-hub.com/api/v2",
+      "description": "Sandbox server"
+    },
+    {
+      "url": "https://robot.lok-hub.com/api/v2",
+      "description": "Production server"
+    }
+  ],
+  "components": {
+    "requestBodies": {
+      "Model24": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Model24"
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "oauth2": {
+        "type": "oauth2",
+        "flows": {
+          "client_credentials": {
+            "tokenUrl": "/oauth/token",
+            "scopes": {
+              "admin": "Lok Admin",
+              "owner": "Company owner",
+              "employee": "Company employee",
+              "reporter": "Company reporter",
+              "seller": "Company seller"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Model1": {
+        "type": "object",
+        "properties": {
+          "resource": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          },
+          "user_email": {
+            "type": "string"
+          },
+          "referer": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date"
+          },
+          "payload": {
+            "type": "string"
+          }
+        }
+      },
+      "action_logs": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Model1"
+        }
+      },
+      "Model2": {
+        "type": "object",
+        "properties": {
+          "action_logs": {
+            "$ref": "#/components/schemas/action_logs"
+          }
+        }
+      },
+      "keys": {
+        "type": "array",
+        "description": "Path of invalid parameters",
+        "items": {
+          "type": "string"
+        }
+      },
+      "data": {
+        "type": "object",
+        "properties": {
+          "keys": {
+            "$ref": "#/components/schemas/keys"
+          },
+          "source": {
+            "type": "string",
+            "description": "Part where validations failed",
+            "enum": [
+              "payload",
+              "headers",
+              "query"
+            ]
+          }
+        },
+        "required": [
+          "keys",
+          "source"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              400
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "default": "INVALID_REQUEST"
+          },
+          "data": {
+            "$ref": "#/components/schemas/data"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Error1": {
+        "type": "object",
+        "description": "Authorization is invalid",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              401
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "INVALID_TOKEN",
+              "INVALID_GRANT",
+              "GRANT_TOKEN"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Error2": {
+        "type": "object",
+        "description": "Authorization scope is insufficient",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              403
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "INSUFFICIENT_SCOPE",
+              "FORBIDDEN_LOCATION",
+              "GRANT_TOKEN"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "company": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "id": {
+            "type": "string",
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          }
+        }
+      },
+      "author": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Author name"
+          },
+          "id": {
+            "type": "string",
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          }
+        }
+      },
+      "DirectoryCompany": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Directory identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          },
+          "company": {
+            "$ref": "#/components/schemas/company"
+          },
+          "author": {
+            "$ref": "#/components/schemas/author"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string",
+            "description": "Directory name",
+            "minLength": 2,
+            "maxLength": 80
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "id",
+          "isActive",
+          "name",
+          "created_at"
+        ]
+      },
+      "directories": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/DirectoryCompany"
+        }
+      },
+      "DirectoryListResponse": {
+        "type": "object",
+        "properties": {
+          "directories": {
+            "$ref": "#/components/schemas/directories"
+          },
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          },
+          "total": {
+            "type": "number",
+            "description": "Total number of results",
+            "example": 125
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number returned",
+            "example": 2
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Maximum number of results per page",
+            "example": 25
+          },
+          "total_pages": {
+            "type": "number",
+            "description": "Total number of pages",
+            "example": 5
+          }
+        },
+        "required": [
+          "directories"
+        ]
+      },
+      "Model3": {
+        "type": "object",
+        "properties": {
+          "size": {
+            "type": "string",
+            "enum": [
+              "s",
+              "m",
+              "l",
+              "xl"
+            ]
+          },
+          "total": {
+            "type": "number",
+            "description": "Total boxes of size. Only for private lockers",
+            "minimum": 0
+          },
+          "occupied": {
+            "type": "number",
+            "description": "Total occupied boxes of size. Only for private lockers",
+            "minimum": 0
+          },
+          "available": {
+            "type": "boolean",
+            "description": "Whether the locker has boxes available in this size"
+          }
+        },
+        "required": [
+          "size"
+        ]
+      },
+      "boxes": {
+        "type": "array",
+        "description": "Available boxes in locker",
+        "items": {
+          "$ref": "#/components/schemas/Model3"
+        }
+      },
+      "LocationAddress": {
+        "type": "object",
+        "description": "Locker host address",
+        "properties": {
+          "parking": {
+            "type": "boolean",
+            "description": "Whether it has a parking space",
+            "default": false
+          },
+          "city": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string",
+            "default": "Mexico"
+          },
+          "street": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 60
+          },
+          "number": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "town": {
+            "type": "string",
+            "description": "Address borough/suburb",
+            "minLength": 2,
+            "maxLength": 50
+          },
+          "zip_code": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 6
+          },
+          "references": {
+            "type": "string",
+            "description": "Address references",
+            "maxLength": 35
+          },
+          "cross_streets": {
+            "type": "string",
+            "description": "Cross street",
+            "maxLength": 35
+          }
+        },
+        "required": [
+          "street",
+          "number",
+          "town",
+          "zip_code"
+        ]
+      },
+      "Coordinates": {
+        "type": "object",
+        "description": "Host location coordinates",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ]
+      },
+      "ServiceDay": {
+        "type": "object",
+        "properties": {
+          "weekday": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "string_weekday": {
+            "type": "string",
+            "enum": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday",
+              "saturday",
+              "sunday"
+            ]
+          },
+          "opening_time": {
+            "type": "string",
+            "description": "Opening hour in hh:mm format",
+            "default": "09:00",
+            "pattern": "^([01]\\d|2[0-3])(:[0-5]\\d){1,2}$"
+          },
+          "closing_time": {
+            "type": "string",
+            "description": "Closing hour in hh:mm format",
+            "default": "18:00",
+            "pattern": "^([01]\\d|2[0-3])(:[0-5]\\d){1,2}$"
+          }
+        },
+        "required": [
+          "weekday",
+          "string_weekday",
+          "opening_time",
+          "closing_time"
+        ]
+      },
+      "service_days": {
+        "type": "array",
+        "description": "Available days schedule",
+        "maxItems": 7,
+        "items": {
+          "$ref": "#/components/schemas/ServiceDay"
+        }
+      },
+      "LocationCompany": {
+        "type": "object",
+        "properties": {
+          "boxes": {
+            "$ref": "#/components/schemas/boxes"
+          },
+          "public_boxes": {
+            "type": "number",
+            "description": "Number of boxes in the public network being used",
+            "default": 0
+          },
+          "id": {
+            "type": "string",
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          },
+          "uuid": {
+            "type": "string",
+            "description": "Locker identifier",
+            "x-constraint": {
+              "length": 4
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          },
+          "internal_name": {
+            "type": "string",
+            "description": "Locker business name",
+            "minLength": 3,
+            "maxLength": 50
+          },
+          "address": {
+            "$ref": "#/components/schemas/LocationAddress"
+          },
+          "coords": {
+            "$ref": "#/components/schemas/Coordinates"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Contact number"
+          },
+          "service_days": {
+            "$ref": "#/components/schemas/service_days"
+          },
+          "timezone": {
+            "type": "string",
+            "example": "America/Chicago"
+          }
+        },
+        "required": [
+          "id",
+          "uuid",
+          "internal_name",
+          "address",
+          "coords",
+          "service_days",
+          "timezone"
+        ]
+      },
+      "locations": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/LocationCompany"
+        }
+      },
+      "LocationListResponse": {
+        "type": "object",
+        "properties": {
+          "locations": {
+            "$ref": "#/components/schemas/locations"
+          },
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          },
+          "total": {
+            "type": "number",
+            "description": "Total number of results",
+            "example": 125
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number returned",
+            "example": 2
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Maximum number of results per page",
+            "example": 25
+          },
+          "total_pages": {
+            "type": "number",
+            "description": "Total number of pages",
+            "example": 5
+          }
+        },
+        "required": [
+          "locations"
+        ]
+      },
+      "management_emails": {
+        "type": "object",
+        "properties": {
+          "operator": {
+            "type": "string",
+            "x-format": {
+              "email": true
+            }
+          },
+          "administrator": {
+            "type": "string",
+            "x-format": {
+              "email": true
+            }
+          }
+        }
+      },
+      "Model4": {
+        "type": "object",
+        "properties": {
+          "management_emails": {
+            "$ref": "#/components/schemas/management_emails"
+          },
+          "status_code": {
+            "type": "number"
+          }
+        }
+      },
+      "location": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          },
+          "uuid": {
+            "type": "string",
+            "description": "Locker identifier",
+            "x-constraint": {
+              "length": 4
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          },
+          "internal_name": {
+            "type": "string",
+            "description": "Locker business name",
+            "minLength": 3,
+            "maxLength": 50
+          },
+          "address": {
+            "$ref": "#/components/schemas/LocationAddress"
+          }
+        },
+        "required": [
+          "id",
+          "uuid",
+          "internal_name",
+          "address"
+        ]
+      },
+      "PackageInfo": {
+        "type": "object",
+        "description": "Package information provided",
+        "default": {},
+        "properties": {
+          "width": {
+            "type": "number",
+            "description": "Package width in cm",
+            "minimum": 1,
+            "maximum": 38,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "height": {
+            "type": "number",
+            "description": "Package height in cm",
+            "minimum": 1,
+            "maximum": 34,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "length": {
+            "type": "number",
+            "description": "Package length in cm",
+            "minimum": 1,
+            "maximum": 56,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "value": {
+            "type": "number",
+            "description": "Package estimated value in MXN",
+            "minimum": 1,
+            "maximum": 20000,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "weight": {
+            "type": "number",
+            "description": "Package weight in kg",
+            "minimum": 1,
+            "maximum": 30,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "description": {
+            "type": "string",
+            "description": "Package description, useful for logistic services, use a comma to split multiple descriptions",
+            "minLength": 2,
+            "maxLength": 255
+          }
+        }
+      },
+      "Model5": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "reserved",
+              "delivered",
+              "reopened",
+              "reopened2",
+              "picked_up",
+              "cancelled"
+            ]
+          },
+          "date": {
+            "type": "string",
+            "description": "Update date in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          }
+        }
+      },
+      "EventHistory": {
+        "type": "array",
+        "description": "Reservation updates history",
+        "items": {
+          "$ref": "#/components/schemas/Model5"
+        }
+      },
+      "shipping": {
+        "type": "object"
+      },
+      "Model6": {
+        "type": "object",
+        "properties": {
+          "size": {
+            "type": "string",
+            "description": "Box size"
+          },
+          "uuid": {
+            "type": "string",
+            "description": "Box identifier"
+          }
+        }
+      },
+      "boxes1": {
+        "type": "array",
+        "description": "Selected boxes. Only for P2P and Mailbox models",
+        "items": {
+          "$ref": "#/components/schemas/Model6"
+        }
+      },
+      "BoxInfo": {
+        "type": "object",
+        "description": "Assigned box information",
+        "properties": {
+          "size": {
+            "type": "string",
+            "description": "Assigned box size"
+          },
+          "uuid": {
+            "type": "string",
+            "description": "Assigned box identifier"
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Whether the box belongs to public network"
+          },
+          "boxes": {
+            "$ref": "#/components/schemas/boxes1"
+          }
+        }
+      },
+      "contact_info": {
+        "type": "object",
+        "description": "Contact person for any issue regarding the reservation.",
+        "default": {},
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 60
+          },
+          "email": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 60,
+            "x-format": {
+              "email": true
+            }
+          },
+          "phone": {
+            "type": "string",
+            "pattern": "^\\d{10,12}$"
+          }
+        }
+      },
+      "recipient_info": {
+        "type": "object",
+        "description": "Contact details of the final user",
+        "default": {},
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 60
+          },
+          "email": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 60,
+            "x-format": {
+              "email": true
+            }
+          },
+          "phone": {
+            "type": "string",
+            "pattern": "^\\d{10,12}$"
+          }
+        }
+      },
+      "Reservation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Reservation identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          },
+          "shipment_id": {
+            "type": "string",
+            "description": "Custom package identifier"
+          },
+          "is_confirmed": {
+            "type": "boolean",
+            "description": "Whether the reservation is confirmed on the locker"
+          },
+          "is_local": {
+            "type": "boolean",
+            "description": "Whether the reservation is in local mode",
+            "default": false
+          },
+          "location": {
+            "$ref": "#/components/schemas/location"
+          },
+          "package_info": {
+            "$ref": "#/components/schemas/PackageInfo"
+          },
+          "delivery_due_date": {
+            "type": "string",
+            "description": "Delivery date limit in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          },
+          "pickup_due_date": {
+            "type": "string",
+            "description": "Pick up date limit in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          },
+          "event_history": {
+            "$ref": "#/components/schemas/EventHistory"
+          },
+          "additional": {
+            "type": "object",
+            "description": "Additional reservation data",
+            "default": {},
+            "name": "AdditionalInfo",
+            "properties": {
+              "string": {
+                "type": "string"
+              }
+            }
+          },
+          "shipping": {
+            "$ref": "#/components/schemas/shipping"
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Reservation creation date in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "Reservation last update date in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          },
+          "locker": {
+            "$ref": "#/components/schemas/BoxInfo"
+          },
+          "contact_info": {
+            "$ref": "#/components/schemas/contact_info"
+          },
+          "recipient_info": {
+            "$ref": "#/components/schemas/recipient_info"
+          },
+          "recipient_notifications_enabled": {
+            "type": "boolean",
+            "description": "Whether recipient's notifications are enabled."
+          }
+        }
+      },
+      "reservations": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Reservation"
+        }
+      },
+      "ReservationListResponse": {
+        "type": "object",
+        "properties": {
+          "reservations": {
+            "$ref": "#/components/schemas/reservations"
+          },
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          },
+          "total": {
+            "type": "number",
+            "description": "Total number of results",
+            "example": 125
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number returned",
+            "example": 2
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Maximum number of results per page",
+            "example": 25
+          },
+          "total_pages": {
+            "type": "number",
+            "description": "Total number of pages",
+            "example": 5
+          }
+        }
+      },
+      "events": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "enum": [
+            "reserved",
+            "delivered",
+            "reopened",
+            "reopened2",
+            "picked_up",
+            "cancelled",
+            "undelivered",
+            "unpicked"
+          ]
+        }
+      },
+      "webhook": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "secret": {
+            "type": "string",
+            "x-format": {
+              "alphanum": true
+            }
+          },
+          "url": {
+            "type": "string",
+            "x-format": {
+              "uri": true
+            }
+          },
+          "events": {
+            "$ref": "#/components/schemas/events"
+          }
+        },
+        "required": [
+          "enabled",
+          "secret",
+          "url",
+          "events"
+        ]
+      },
+      "Model7": {
+        "type": "object",
+        "properties": {
+          "webhook": {
+            "$ref": "#/components/schemas/webhook"
+          },
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          }
+        }
+      },
+      "Model8": {
+        "type": "object",
+        "description": "Access token granted",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Access token to use in future requests"
+          },
+          "access_token_expires_at": {
+            "type": "string",
+            "format": "date",
+            "description": "Access token expiration in UTC format"
+          },
+          "scope": {
+            "type": "string",
+            "description": "User scope granted for this client"
+          }
+        },
+        "required": [
+          "access_token",
+          "access_token_expires_at",
+          "scope"
+        ]
+      },
+      "company1": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Company identifier"
+          },
+          "name": {
+            "type": "string",
+            "description": "Company name"
+          }
+        }
+      },
+      "user": {
+        "type": "object",
+        "description": "Authenticated user data",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "company": {
+            "$ref": "#/components/schemas/company1"
+          },
+          "location": {
+            "type": "string",
+            "description": "Location identifier where the user is allowed to operate"
+          },
+          "scope": {
+            "type": "string",
+            "description": "User scope granted"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date",
+            "description": "User creation date"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date",
+            "description": "Date of last update"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "scope",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "Model9": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          },
+          "user": {
+            "$ref": "#/components/schemas/user"
+          }
+        }
+      },
+      "tokens": {
+        "type": "object",
+        "description": "Reservation tokens with QR",
+        "properties": {
+          "delivery_token": {
+            "type": "string"
+          },
+          "delivery_token_qr": {
+            "type": "string"
+          },
+          "reopen_1_token": {
+            "type": "string"
+          },
+          "reopen_1_token_qr": {
+            "type": "string"
+          },
+          "reopen_2_token": {
+            "type": "string"
+          },
+          "reopen_2_token_qr": {
+            "type": "string"
+          },
+          "pickup_token": {
+            "type": "string"
+          },
+          "pickup_token_qr": {
+            "type": "string"
+          },
+          "cancel_token": {
+            "type": "string"
+          },
+          "cancel_token_qr": {
+            "type": "string"
+          }
+        }
+      },
+      "Model10": {
+        "type": "object",
+        "properties": {
+          "reservation": {
+            "$ref": "#/components/schemas/Reservation"
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/tokens"
+          },
+          "confirmation_code": {
+            "type": "string"
+          },
+          "status_code": {
+            "type": "number"
+          }
+        }
+      },
+      "Error3": {
+        "type": "object",
+        "description": "Resource not found",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              404
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "default": "ENTITY_NOT_FOUND"
+          },
+          "data": {
+            "$ref": "#/components/schemas/shipping"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "pickup_point": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Courier pick up address"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Courier pick up notes"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      },
+      "destination_point": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Courier destination address"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Courier destination notes"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      },
+      "shipping1": {
+        "type": "object",
+        "description": "Shipping information",
+        "properties": {
+          "tracking_id": {
+            "type": "string",
+            "description": "Carrier tracking id"
+          },
+          "pickup_point": {
+            "$ref": "#/components/schemas/pickup_point"
+          },
+          "destination_point": {
+            "$ref": "#/components/schemas/destination_point"
+          },
+          "carrier": {
+            "type": "string",
+            "description": "Carrier used"
+          },
+          "vehicle_type": {
+            "type": "string",
+            "description": "Vehicle type quoted"
+          },
+          "fee": {
+            "type": "string",
+            "description": "Shipping cost in MXN"
+          },
+          "required_pickup_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Carrier recollection date",
+            "default": "2020-09-08T00:26:35.817Z"
+          },
+          "estimated_delivery_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Carrier estimated delivery date",
+            "default": "2020-09-08T00:28:35.817Z"
+          }
+        },
+        "required": [
+          "carrier",
+          "fee"
+        ]
+      },
+      "Reservation1": {
+        "type": "object",
+        "description": "Reservation with shipping",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Reservation identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          },
+          "shipment_id": {
+            "type": "string",
+            "description": "Custom package identifier"
+          },
+          "is_confirmed": {
+            "type": "boolean",
+            "description": "Whether the reservation is confirmed on the locker"
+          },
+          "is_local": {
+            "type": "boolean",
+            "description": "Whether the reservation is in local mode",
+            "default": false
+          },
+          "location": {
+            "type": "string",
+            "description": "Location identifier"
+          },
+          "package_info": {
+            "$ref": "#/components/schemas/PackageInfo"
+          },
+          "delivery_due_date": {
+            "type": "string",
+            "description": "Delivery date limit in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          },
+          "pickup_due_date": {
+            "type": "string",
+            "description": "Pick up date limit in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          },
+          "event_history": {
+            "$ref": "#/components/schemas/EventHistory"
+          },
+          "additional": {
+            "type": "object",
+            "description": "Additional reservation data",
+            "default": {},
+            "name": "AdditionalInfo",
+            "properties": {
+              "string": {
+                "type": "string"
+              }
+            }
+          },
+          "shipping": {
+            "$ref": "#/components/schemas/shipping1"
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Reservation creation date in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "Reservation last update date in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          },
+          "locker": {
+            "$ref": "#/components/schemas/BoxInfo"
+          },
+          "contact_info": {
+            "$ref": "#/components/schemas/contact_info"
+          },
+          "recipient_info": {
+            "$ref": "#/components/schemas/recipient_info"
+          },
+          "recipient_notifications_enabled": {
+            "type": "boolean",
+            "description": "Whether recipient's notifications are enabled."
+          }
+        }
+      },
+      "reservations1": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Reservation1"
+        }
+      },
+      "PaginationResult": {
+        "type": "object",
+        "description": "Reservations with shipping",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          },
+          "reservations": {
+            "$ref": "#/components/schemas/reservations1"
+          },
+          "total": {
+            "type": "number",
+            "description": "Total number of results",
+            "example": 125
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number returned",
+            "example": 2
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Maximum number of results per page",
+            "example": 25
+          },
+          "total_pages": {
+            "type": "number",
+            "description": "Total number of pages",
+            "example": 5
+          }
+        }
+      },
+      "Model11": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "default": 200
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "phones": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "description": "Contact number",
+          "pattern": "^\\d{10,12}$"
+        }
+      },
+      "FullAddress": {
+        "type": "object",
+        "properties": {
+          "delivery_info": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string",
+            "default": "Mexico"
+          },
+          "street": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 60
+          },
+          "number": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "town": {
+            "type": "string",
+            "description": "Address borough/suburb",
+            "minLength": 2,
+            "maxLength": 50
+          },
+          "zip_code": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 6
+          },
+          "references": {
+            "type": "string",
+            "description": "Address references",
+            "maxLength": 35
+          },
+          "cross_streets": {
+            "type": "string",
+            "description": "Cross street",
+            "maxLength": 35
+          }
+        },
+        "required": [
+          "street",
+          "number",
+          "town",
+          "zip_code"
+        ]
+      },
+      "Model12": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Contact name",
+            "minLength": 2,
+            "maxLength": 80
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Contact name",
+            "minLength": 2,
+            "maxLength": 80
+          },
+          "email": {
+            "type": "string",
+            "x-format": {
+              "email": true
+            }
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female",
+              "unspecified"
+            ]
+          },
+          "age": {
+            "type": "integer"
+          },
+          "phones": {
+            "$ref": "#/components/schemas/phones"
+          },
+          "address": {
+            "$ref": "#/components/schemas/FullAddress"
+          },
+          "directory": {
+            "type": "string",
+            "description": "Directory identifier"
+          }
+        },
+        "required": [
+          "name",
+          "last_name",
+          "gender",
+          "age"
+        ]
+      },
+      "contacts": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Model12"
+        }
+      },
+      "locations1": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/location"
+        }
+      },
+      "DirectoryCompany1": {
+        "type": "object",
+        "properties": {
+          "contacts": {
+            "$ref": "#/components/schemas/contacts"
+          },
+          "locations": {
+            "$ref": "#/components/schemas/locations1"
+          },
+          "isActive": {
+            "type": "boolean",
+            "default": true
+          },
+          "id": {
+            "type": "string",
+            "description": "Directory identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          },
+          "company": {
+            "$ref": "#/components/schemas/company"
+          },
+          "author": {
+            "$ref": "#/components/schemas/author"
+          },
+          "name": {
+            "type": "string",
+            "description": "Directory name",
+            "minLength": 2,
+            "maxLength": 80
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "contacts",
+          "isActive",
+          "id",
+          "name",
+          "created_at"
+        ]
+      },
+      "Model13": {
+        "type": "object",
+        "properties": {
+          "directory": {
+            "$ref": "#/components/schemas/DirectoryCompany1"
+          },
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          }
+        },
+        "required": [
+          "directory"
+        ]
+      },
+      "Model14": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          },
+          "location": {
+            "$ref": "#/components/schemas/LocationCompany"
+          }
+        }
+      },
+      "Reservation2": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Reservation identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          },
+          "shipment_id": {
+            "type": "string",
+            "description": "Custom package identifier"
+          },
+          "is_confirmed": {
+            "type": "boolean",
+            "description": "Whether the reservation is confirmed on the locker"
+          },
+          "is_local": {
+            "type": "boolean",
+            "description": "Whether the reservation is in local mode",
+            "default": false
+          },
+          "location": {
+            "type": "string",
+            "description": "Location identifier"
+          },
+          "package_info": {
+            "$ref": "#/components/schemas/PackageInfo"
+          },
+          "delivery_due_date": {
+            "type": "string",
+            "description": "Delivery date limit in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          },
+          "pickup_due_date": {
+            "type": "string",
+            "description": "Pick up date limit in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          },
+          "event_history": {
+            "$ref": "#/components/schemas/EventHistory"
+          },
+          "additional": {
+            "type": "object",
+            "description": "Additional reservation data",
+            "default": {},
+            "name": "AdditionalInfo",
+            "properties": {
+              "string": {
+                "type": "string"
+              }
+            }
+          },
+          "shipping": {
+            "$ref": "#/components/schemas/shipping"
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Reservation creation date in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "Reservation last update date in ISO 8601 format",
+            "x-format": {
+              "isoDate": true
+            }
+          },
+          "locker": {
+            "$ref": "#/components/schemas/BoxInfo"
+          },
+          "contact_info": {
+            "$ref": "#/components/schemas/contact_info"
+          },
+          "recipient_info": {
+            "$ref": "#/components/schemas/recipient_info"
+          },
+          "recipient_notifications_enabled": {
+            "type": "boolean",
+            "description": "Whether recipient's notifications are enabled."
+          }
+        }
+      },
+      "reservations2": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Reservation2"
+        }
+      },
+      "ReservationListResponse1": {
+        "type": "object",
+        "properties": {
+          "reservations": {
+            "$ref": "#/components/schemas/reservations2"
+          },
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          },
+          "total": {
+            "type": "number",
+            "description": "Total number of results",
+            "example": 125
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number returned",
+            "example": 2
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Maximum number of results per page",
+            "example": 25
+          },
+          "total_pages": {
+            "type": "number",
+            "description": "Total number of pages",
+            "example": 5
+          }
+        }
+      },
+      "Model15": {
+        "type": "object",
+        "properties": {
+          "jpeg": {
+            "type": "string",
+            "description": "Tracking guide in JPEG format"
+          },
+          "pdf": {
+            "type": "string",
+            "description": "Tracking guide in PDF format"
+          }
+        },
+        "required": [
+          "jpeg",
+          "pdf"
+        ]
+      },
+      "Error4": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              422
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Model16": {
+        "type": "object",
+        "properties": {
+          "units_weight": {
+            "type": "string",
+            "description": "Code for SAT messurments and packing",
+            "minLength": 1,
+            "maxLength": 10
+          },
+          "product_service": {
+            "type": "string",
+            "description": "Code for SAT products and services",
+            "minLength": 1,
+            "maxLength": 10
+          },
+          "dangerous_material": {
+            "type": "string",
+            "description": "Code for SAT dangerous materials",
+            "minLength": 1,
+            "maxLength": 10
+          },
+          "pack_type": {
+            "type": "string",
+            "description": "Code for SAT packing type",
+            "minLength": 1,
+            "maxLength": 10
+          },
+          "units": {
+            "type": "string",
+            "description": "Quantity of the same object",
+            "minLength": 1,
+            "maxLength": 10
+          },
+          "is_dangerous": {
+            "type": "boolean",
+            "description": "Value to know if the item is dangerous"
+          }
+        },
+        "required": [
+          "units_weight",
+          "product_service",
+          "is_dangerous"
+        ]
+      },
+      "items": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Model16"
+        }
+      },
+      "PackageInfoRequest": {
+        "type": "object",
+        "description": "Additional package information",
+        "properties": {
+          "width": {
+            "type": "number",
+            "description": "Package width in cm",
+            "minimum": 1,
+            "maximum": 38,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "height": {
+            "type": "number",
+            "description": "Package height in cm",
+            "minimum": 1,
+            "maximum": 34,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "length": {
+            "type": "number",
+            "description": "Package length in cm",
+            "minimum": 1,
+            "maximum": 56,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "value": {
+            "type": "number",
+            "description": "Package estimated value in MXN",
+            "minimum": 1,
+            "maximum": 20000,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "weight": {
+            "type": "number",
+            "description": "Package weight in kg",
+            "minimum": 1,
+            "maximum": 30,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "description": {
+            "type": "string",
+            "description": "Package description, useful for logistic services, use a comma to split multiple descriptions",
+            "minLength": 2,
+            "maxLength": 255
+          },
+          "items": {
+            "$ref": "#/components/schemas/items"
+          }
+        },
+        "required": [
+          "weight",
+          "items"
+        ]
+      },
+      "contact": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "pattern": "^\\d{10,12}$"
+          },
+          "name": {
+            "type": "string",
+            "description": "Contact name",
+            "minLength": 2,
+            "maxLength": 30,
+            "x-convert": {
+              "trim": true
+            }
+          },
+          "email": {
+            "type": "string",
+            "x-format": {
+              "email": true
+            }
+          },
+          "company": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "rfc": {
+            "type": "string",
+            "description": "Contact taxpayer number",
+            "minLength": 12,
+            "maxLength": 13
+          }
+        },
+        "required": [
+          "phone",
+          "email"
+        ]
+      },
+      "FullAddressShipping": {
+        "type": "object",
+        "description": "Courier pick up address. If the request has `destination` and `location_id` a 400 error is returned.",
+        "properties": {
+          "contact": {
+            "$ref": "#/components/schemas/contact"
+          },
+          "street_type": {
+            "type": "string"
+          },
+          "town_type": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string",
+            "default": "Mexico"
+          },
+          "street": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 60
+          },
+          "number": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "town": {
+            "type": "string",
+            "description": "Address borough/suburb",
+            "minLength": 2,
+            "maxLength": 50
+          },
+          "zip_code": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 6
+          },
+          "references": {
+            "type": "string",
+            "description": "Address references",
+            "maxLength": 35
+          },
+          "cross_streets": {
+            "type": "string",
+            "description": "Cross street",
+            "maxLength": 35
+          }
+        },
+        "required": [
+          "street",
+          "number",
+          "town",
+          "zip_code"
+        ]
+      },
+      "FullAddressShipping1": {
+        "type": "object",
+        "description": "Courier delivery address",
+        "properties": {
+          "contact": {
+            "$ref": "#/components/schemas/contact"
+          },
+          "street_type": {
+            "type": "string"
+          },
+          "town_type": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string",
+            "default": "Mexico"
+          },
+          "street": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 60
+          },
+          "number": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "town": {
+            "type": "string",
+            "description": "Address borough/suburb",
+            "minLength": 2,
+            "maxLength": 50
+          },
+          "zip_code": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 6
+          },
+          "references": {
+            "type": "string",
+            "description": "Address references",
+            "maxLength": 35
+          },
+          "cross_streets": {
+            "type": "string",
+            "description": "Cross street",
+            "maxLength": 35
+          }
+        },
+        "required": [
+          "street",
+          "number",
+          "town",
+          "zip_code"
+        ]
+      },
+      "Model17": {
+        "type": "object",
+        "properties": {
+          "preferred": {
+            "type": "string",
+            "description": "Preffered carrier"
+          },
+          "package_info": {
+            "$ref": "#/components/schemas/PackageInfoRequest"
+          },
+          "location_id": {
+            "type": "string",
+            "description": "Location identifier for delivery. If the request has `destination` and `location_id` a 400 error is returned."
+          },
+          "destination": {
+            "$ref": "#/components/schemas/FullAddressShipping"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/FullAddressShipping1"
+          }
+        },
+        "required": [
+          "preferred",
+          "package_info"
+        ]
+      },
+      "directory": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Directory name",
+            "minLength": 2,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "DirectoryBody": {
+        "type": "object",
+        "properties": {
+          "directory": {
+            "$ref": "#/components/schemas/directory"
+          }
+        }
+      },
+      "Error5": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              409
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Error6": {
+        "type": "object",
+        "description": "Unable to complete request",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              424
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "coords": {
+        "type": "object",
+        "description": "Coordinates for which to find the closest locations.",
+        "properties": {
+          "long": {
+            "type": "number",
+            "description": "Center longitude",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "lat": {
+            "type": "number",
+            "description": "Center latitude",
+            "minimum": -90,
+            "maximum": 90
+          }
+        },
+        "required": [
+          "long",
+          "lat"
+        ]
+      },
+      "Model18": {
+        "type": "object",
+        "properties": {
+          "coords": {
+            "$ref": "#/components/schemas/coords"
+          },
+          "zip_code": {
+            "type": "string",
+            "description": "Zip code for which to find the closest locations.",
+            "minLength": 2,
+            "maxLength": 6
+          },
+          "max_distance": {
+            "type": "number",
+            "description": "The maximum distance in meters from the center point that the locations can be.",
+            "default": 50000,
+            "minimum": 1
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of locations to return.",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "size": {
+            "type": "string",
+            "description": "Size for which to find an available box",
+            "enum": [
+              "s",
+              "m",
+              "l",
+              "xl"
+            ],
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Size for which to find an available box",
+                "enum": [
+                  "s",
+                  "m",
+                  "l",
+                  "xl"
+                ]
+              },
+              {
+                "$ref": "#/x-alt-definitions/BoxSizeRequest"
+              }
+            ]
+          }
+        },
+        "required": [
+          "limit"
+        ]
+      },
+      "LocationAvailable": {
+        "type": "object",
+        "properties": {
+          "distance": {
+            "type": "number",
+            "description": "Distance in meters from the center"
+          },
+          "host": {
+            "type": "string",
+            "description": "Locker host name",
+            "example": "Farmacias Guadalajara"
+          },
+          "is_24": {
+            "type": "boolean",
+            "description": "Whether the locker has 24hrs access",
+            "default": false
+          },
+          "coords": {
+            "$ref": "#/components/schemas/Coordinates"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Contact number"
+          },
+          "service_days": {
+            "$ref": "#/components/schemas/service_days"
+          },
+          "timezone": {
+            "type": "string",
+            "example": "America/Chicago"
+          },
+          "internal_name": {
+            "type": "string",
+            "description": "Locker business name",
+            "minLength": 3,
+            "maxLength": 50
+          },
+          "address": {
+            "$ref": "#/components/schemas/LocationAddress"
+          },
+          "id": {
+            "type": "string",
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          },
+          "uuid": {
+            "type": "string",
+            "description": "Locker identifier",
+            "x-constraint": {
+              "length": 4
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          }
+        },
+        "required": [
+          "distance",
+          "service_days",
+          "timezone",
+          "internal_name",
+          "address",
+          "id",
+          "uuid"
+        ]
+      },
+      "locations2": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/LocationAvailable"
+        }
+      },
+      "Model19": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          },
+          "locations": {
+            "$ref": "#/components/schemas/locations2"
+          },
+          "grant": {
+            "type": "string",
+            "description": "Token granted to create a pre-reservation in the locations returned",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+          }
+        }
+      },
+      "Error7": {
+        "type": "object",
+        "description": "Unable to find a box with required size or provided zip code is invalid.",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              422
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "BOX_INCOMPATIBLE",
+              "INVALID_ADDRESS"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Error8": {
+        "type": "object",
+        "description": "Unexpected error",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              500
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "default": "UNKNOWN_ERROR"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "directoriesIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "Model20": {
+        "type": "object",
+        "properties": {
+          "directoriesIds": {
+            "$ref": "#/components/schemas/directoriesIds"
+          },
+          "csv": {
+            "type": "string"
+          }
+        }
+      },
+      "PackageInfoRequest1": {
+        "type": "object",
+        "description": "Additional package information",
+        "properties": {
+          "value": {
+            "type": "number",
+            "description": "Package estimated value in MXN",
+            "minimum": 1,
+            "maximum": 20000,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "weight": {
+            "type": "number",
+            "description": "Package weight in kg",
+            "minimum": 1,
+            "maximum": 30,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "description": {
+            "type": "string",
+            "description": "Package description, useful for logistic services, use a comma to split multiple descriptions",
+            "minLength": 2,
+            "maxLength": 255
+          }
+        }
+      },
+      "contact_info1": {
+        "type": "object",
+        "description": "Contact person for any issue regarding the reservation. It should contain either name or email.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 60
+          },
+          "email": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 60,
+            "x-format": {
+              "email": true
+            }
+          },
+          "phone": {
+            "type": "string",
+            "pattern": "^\\d{10,12}$"
+          }
+        }
+      },
+      "recipient_info1": {
+        "type": "object",
+        "description": "Contact details of the final user",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 60
+          },
+          "email": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 60,
+            "x-format": {
+              "email": true
+            }
+          },
+          "phone": {
+            "type": "string",
+            "pattern": "^\\d{10,12}$"
+          }
+        }
+      },
+      "PreReservationRequest": {
+        "type": "object",
+        "properties": {
+          "size": {
+            "type": "string",
+            "description": "Size for which to find an available box",
+            "enum": [
+              "s",
+              "m",
+              "l",
+              "xl"
+            ],
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Size for which to find an available box",
+                "enum": [
+                  "s",
+                  "m",
+                  "l",
+                  "xl"
+                ]
+              },
+              {
+                "$ref": "#/x-alt-definitions/BoxSizeRequest"
+              }
+            ]
+          },
+          "delivery_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Expected delivery date in ISO 8601 format. Defaults to 24 hours from request",
+            "example": "2022-07-08T14:38:58.732Z"
+          },
+          "delivery_confirmation_enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "delivery_token": {
+            "type": "string",
+            "description": "Custom delivery token.",
+            "minLength": 5,
+            "pattern": "^[a-zA-Z0-9-_/\\\\\\\\]+$"
+          },
+          "shipment_id": {
+            "type": "string",
+            "description": "Your identifier for the reservation.",
+            "minLength": 2,
+            "maxLength": 60
+          },
+          "package_info": {
+            "$ref": "#/components/schemas/PackageInfoRequest1"
+          },
+          "additional": {
+            "type": "object",
+            "description": "Custom reservation information (up to 30 keys). Any key starting with `lok` will be ignored",
+            "name": "AdditionalInfo",
+            "properties": {
+              "string": {
+                "type": "string"
+              }
+            }
+          },
+          "contact_info": {
+            "$ref": "#/components/schemas/contact_info1"
+          },
+          "recipient_info": {
+            "$ref": "#/components/schemas/recipient_info1"
+          },
+          "recipient_notifications_enabled": {
+            "type": "boolean",
+            "description": "Whether to send the pick up token to recipient's email."
+          }
+        }
+      },
+      "Model21": {
+        "type": "object",
+        "properties": {
+          "reservation": {
+            "$ref": "#/components/schemas/Reservation2"
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/tokens"
+          },
+          "confirmation_code": {
+            "type": "string"
+          },
+          "status_code": {
+            "type": "number"
+          }
+        }
+      },
+      "Error9": {
+        "type": "object",
+        "description": "The dimensions provided cannot be held by any box",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              422
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "BOX_INCOMPATIBLE"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "size": {
+        "type": "object",
+        "description": "Required box size",
+        "properties": {
+          "width": {
+            "type": "number",
+            "description": "Package width in cm",
+            "minimum": 1,
+            "maximum": 38,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "height": {
+            "type": "number",
+            "description": "Package height in cm",
+            "minimum": 1,
+            "maximum": 34,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "length": {
+            "type": "number",
+            "description": "Package length in cm",
+            "minimum": 1,
+            "maximum": 56,
+            "x-constraint": {
+              "precision": 2
+            }
+          }
+        }
+      },
+      "PackageInfoRequest2": {
+        "type": "object",
+        "description": "Additional package information",
+        "properties": {
+          "value": {
+            "type": "number",
+            "description": "Package estimated value in MXN",
+            "minimum": 1,
+            "maximum": 20000,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "weight": {
+            "type": "number",
+            "description": "Package weight in kg",
+            "minimum": 1,
+            "maximum": 30,
+            "x-constraint": {
+              "precision": 2
+            }
+          },
+          "description": {
+            "type": "string",
+            "description": "Package description, useful for logistic services, use a comma to split multiple descriptions",
+            "minLength": 2,
+            "maxLength": 255
+          },
+          "request_insurance": {
+            "type": "boolean",
+            "description": "Request package insurance"
+          },
+          "request_thermal_lable": {
+            "type": "boolean",
+            "description": "Request thermal label size pdf"
+          }
+        },
+        "required": [
+          "weight"
+        ]
+      },
+      "Address": {
+        "type": "object",
+        "description": "Courier pick up address",
+        "properties": {
+          "street": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 60
+          },
+          "number": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "town": {
+            "type": "string",
+            "description": "Address borough/suburb",
+            "minLength": 2,
+            "maxLength": 50
+          },
+          "zip_code": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 6
+          },
+          "references": {
+            "type": "string",
+            "description": "Address references",
+            "maxLength": 35
+          },
+          "cross_streets": {
+            "type": "string",
+            "description": "Cross street",
+            "maxLength": 35
+          }
+        },
+        "required": [
+          "street",
+          "number",
+          "town",
+          "zip_code"
+        ]
+      },
+      "contact1": {
+        "type": "object",
+        "description": "Contact person",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "pattern": "^\\d{10,12}$"
+          },
+          "name": {
+            "type": "string",
+            "description": "Contact name",
+            "minLength": 2,
+            "maxLength": 30,
+            "x-convert": {
+              "trim": true
+            }
+          }
+        },
+        "required": [
+          "phone"
+        ]
+      },
+      "Model22": {
+        "type": "object",
+        "properties": {
+          "size": {
+            "$ref": "#/components/schemas/size"
+          },
+          "shipment_id": {
+            "type": "string",
+            "description": "Custom package identifier"
+          },
+          "package_info": {
+            "$ref": "#/components/schemas/PackageInfoRequest2"
+          },
+          "pickup_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Required pick up date",
+            "example": "2022-07-08T14:38:58.732Z"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "contact": {
+            "$ref": "#/components/schemas/contact1"
+          }
+        },
+        "required": [
+          "size",
+          "shipment_id",
+          "package_info",
+          "pickup_date",
+          "origin",
+          "contact"
+        ]
+      },
+      "Model23": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          },
+          "shipment_id": {
+            "type": "string",
+            "description": "Custom package identifier"
+          },
+          "tracking_id": {
+            "type": "string",
+            "description": "Tracking guide identifier"
+          },
+          "carrier": {
+            "type": "string",
+            "description": "Carrier used"
+          },
+          "fee": {
+            "type": "string",
+            "description": "Shipping cost in MXN"
+          },
+          "estimated_delivery_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Carrier estimated delivery date",
+            "default": "2020-09-08T00:28:35.817Z"
+          },
+          "label": {
+            "type": "string",
+            "description": "Tracking guide in PDF format"
+          },
+          "reservation_id": {
+            "type": "string",
+            "description": "Resource identifier",
+            "x-constraint": {
+              "length": 24
+            },
+            "x-format": {
+              "hex": {
+                "byteAligned": false
+              }
+            }
+          }
+        },
+        "required": [
+          "carrier",
+          "fee",
+          "label"
+        ]
+      },
+      "ReservationRequest": {
+        "type": "object",
+        "properties": {
+          "size": {
+            "type": "string",
+            "description": "Size for which to find an available box",
+            "enum": [
+              "s",
+              "m",
+              "l",
+              "xl"
+            ],
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Size for which to find an available box",
+                "enum": [
+                  "s",
+                  "m",
+                  "l",
+                  "xl"
+                ]
+              },
+              {
+                "$ref": "#/x-alt-definitions/BoxSizeRequest"
+              }
+            ]
+          },
+          "delivery_token": {
+            "type": "string",
+            "description": "Custom delivery token.",
+            "minLength": 5,
+            "pattern": "^[a-zA-Z0-9-_/\\\\\\\\]+$"
+          },
+          "delivery_confirmation_enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "shipment_id": {
+            "type": "string",
+            "description": "Your identifier for the reservation.",
+            "minLength": 2,
+            "maxLength": 60
+          },
+          "package_info": {
+            "$ref": "#/components/schemas/PackageInfoRequest1"
+          },
+          "additional": {
+            "type": "object",
+            "description": "Custom reservation information (up to 30 keys). Any key starting with `lok` will be ignored",
+            "name": "AdditionalInfo",
+            "properties": {
+              "string": {
+                "type": "string"
+              }
+            }
+          },
+          "contact_info": {
+            "$ref": "#/components/schemas/contact_info1"
+          },
+          "recipient_info": {
+            "$ref": "#/components/schemas/recipient_info1"
+          },
+          "recipient_notifications_enabled": {
+            "type": "boolean",
+            "description": "Whether to send the pick up token to recipient's email."
+          }
+        },
+        "required": [
+          "size"
+        ]
+      },
+      "Error10": {
+        "type": "object",
+        "description": "Insufficient scope in requested location",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              403
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "INSUFFICIENT_SCOPE",
+              "FORBIDDEN_LOCATION",
+              "GRANT_TOKEN"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Error11": {
+        "type": "object",
+        "description": "Shipment id already exists within the company",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              409
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "UNIQUE_SHIPMENT"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Error12": {
+        "type": "object",
+        "description": "Unable to assign a box with required size",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              422
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "BOX_INCOMPATIBLE",
+              "NO_CAPACITY"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Model24": {
+        "type": "object",
+        "properties": {
+          "origin": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "contact": {
+            "$ref": "#/components/schemas/contact1"
+          }
+        }
+      },
+      "tokens1": {
+        "type": "object",
+        "description": "Reservation tokens and shipping order id with encoded images",
+        "properties": {
+          "delivery_token": {
+            "type": "string"
+          },
+          "delivery_token_qr": {
+            "type": "string"
+          },
+          "reopen_1_token": {
+            "type": "string"
+          },
+          "reopen_1_token_qr": {
+            "type": "string"
+          },
+          "reopen_2_token": {
+            "type": "string"
+          },
+          "reopen_2_token_qr": {
+            "type": "string"
+          },
+          "pickup_token": {
+            "type": "string"
+          },
+          "pickup_token_qr": {
+            "type": "string"
+          },
+          "cancel_token": {
+            "type": "string"
+          },
+          "cancel_token_qr": {
+            "type": "string"
+          }
+        }
+      },
+      "Model25": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "enum": [
+              201
+            ]
+          },
+          "reservation": {
+            "$ref": "#/components/schemas/Reservation1"
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/tokens1"
+          }
+        }
+      },
+      "Error13": {
+        "type": "object",
+        "description": "Reservation cannot longer be updated",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              410
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "INVALID_RESERVATION"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Error14": {
+        "type": "object",
+        "description": "Reservation has missing information",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              422
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "INVALID_RESERVATION"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Error15": {
+        "type": "object",
+        "description": "Failed to create order with carrier",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              424
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "LOGISTIC_ERROR"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "quoting": {
+        "type": "object",
+        "description": "Quoting information",
+        "properties": {
+          "origin": {
+            "type": "string",
+            "description": "Courier pick up address"
+          },
+          "destination": {
+            "type": "string",
+            "description": "Locker address"
+          },
+          "carrier": {
+            "type": "string",
+            "description": "Carrier used"
+          },
+          "vehicle_type": {
+            "type": "string",
+            "description": "Vehicle type quoted"
+          },
+          "fee": {
+            "type": "string",
+            "description": "Shipping cost in MXN"
+          },
+          "required_pickup_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Carrier recollection date",
+            "default": "2020-09-08T00:26:35.817Z"
+          },
+          "estimated_delivery_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Carrier estimated delivery date",
+            "default": "2020-09-08T00:28:35.817Z"
+          }
+        },
+        "required": [
+          "origin",
+          "destination",
+          "carrier",
+          "fee"
+        ]
+      },
+      "Model26": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "enum": [
+              200
+            ]
+          },
+          "quoting": {
+            "$ref": "#/components/schemas/quoting"
+          }
+        },
+        "required": [
+          "quoting"
+        ]
+      },
+      "Error16": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              410
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "Model27": {
+        "type": "object",
+        "properties": {
+          "operator_email": {
+            "type": "string",
+            "x-format": {
+              "email": true
+            }
+          },
+          "administrator_email": {
+            "type": "string",
+            "x-format": {
+              "email": true
+            }
+          }
+        }
+      },
+      "Model28": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "x-format": {
+              "uri": true
+            }
+          },
+          "events": {
+            "$ref": "#/components/schemas/events"
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ]
+      },
+      "PreReservationUpdate": {
+        "type": "object",
+        "description": "Reservation fields to update. At least one field must be sent.",
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "description": "Your identifier for the reservation.",
+            "minLength": 2,
+            "maxLength": 60
+          },
+          "package_info": {
+            "$ref": "#/components/schemas/PackageInfoRequest1"
+          },
+          "additional": {
+            "type": "object",
+            "description": "Custom reservation information (up to 30 keys). Any key starting with `lok` will be ignored",
+            "name": "AdditionalInfo",
+            "properties": {
+              "string": {
+                "type": "string"
+              }
+            }
+          },
+          "contact_info": {
+            "$ref": "#/components/schemas/contact_info1"
+          },
+          "recipient_info": {
+            "$ref": "#/components/schemas/recipient_info1"
+          },
+          "recipient_notifications_enabled": {
+            "type": "boolean",
+            "description": "Whether to send the pick up token to recipient's email."
+          },
+          "size": {
+            "type": "string",
+            "description": "Size for which to find an available box",
+            "enum": [
+              "s",
+              "m",
+              "l",
+              "xl"
+            ],
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Size for which to find an available box",
+                "enum": [
+                  "s",
+                  "m",
+                  "l",
+                  "xl"
+                ]
+              },
+              {
+                "$ref": "#/x-alt-definitions/BoxSizeRequest"
+              }
+            ]
+          },
+          "delivery_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Expected delivery date in ISO 8601 format. Defaults to 24 hours from request",
+            "example": "2022-07-08T14:38:58.732Z"
+          },
+          "delivery_confirmation_enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "delivery_token": {
+            "type": "string",
+            "description": "Custom delivery token.",
+            "minLength": 5,
+            "pattern": "^[a-zA-Z0-9-_/\\\\\\\\]+$"
+          }
+        }
+      },
+      "Error17": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              410
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "INVALID_RESERVATION"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "locations3": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "x-constraint": {
+            "length": 24
+          },
+          "x-format": {
+            "hex": {
+              "byteAligned": false
+            }
+          }
+        }
+      },
+      "directory1": {
+        "type": "object",
+        "properties": {
+          "is_active": {
+            "type": "boolean",
+            "default": true
+          },
+          "locations": {
+            "$ref": "#/components/schemas/locations3"
+          },
+          "name": {
+            "type": "string",
+            "description": "Directory name",
+            "minLength": 2,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "DirectoryUpdateBody": {
+        "type": "object",
+        "properties": {
+          "directory": {
+            "$ref": "#/components/schemas/directory1"
+          }
+        }
+      },
+      "Model29": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      },
+      "Model30": {
+        "type": "object",
+        "properties": {
+          "contacts": {
+            "$ref": "#/components/schemas/contacts"
+          }
+        },
+        "required": [
+          "contacts"
+        ]
+      },
+      "Model31": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Contact name",
+            "minLength": 2,
+            "maxLength": 80
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Contact name",
+            "minLength": 2,
+            "maxLength": 80
+          },
+          "email": {
+            "type": "string",
+            "x-format": {
+              "email": true
+            }
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female",
+              "unspecified"
+            ]
+          },
+          "age": {
+            "type": "integer"
+          },
+          "phones": {
+            "$ref": "#/components/schemas/phones"
+          },
+          "address": {
+            "$ref": "#/components/schemas/FullAddress"
+          },
+          "directory": {
+            "type": "string",
+            "description": "Directory identifier"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "name",
+          "last_name",
+          "gender",
+          "age",
+          "created_at"
+        ]
+      },
+      "contacts1": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Model31"
+        }
+      },
+      "Model32": {
+        "type": "object",
+        "properties": {
+          "contacts": {
+            "$ref": "#/components/schemas/contacts1"
+          }
+        },
+        "required": [
+          "contacts"
+        ]
+      },
+      "ReservationResponse": {
+        "type": "object",
+        "properties": {
+          "reservation": {
+            "$ref": "#/components/schemas/Reservation2"
+          },
+          "status_code": {
+            "type": "number"
+          }
+        }
+      },
+      "Error18": {
+        "type": "object",
+        "description": "The reservation is in an ongoing state",
+        "properties": {
+          "status_code": {
+            "type": "number",
+            "description": "HTTP status code",
+            "enum": [
+              409
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "INVALID_RESERVATION"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Human readable message"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      }
+    }
+  }
+}

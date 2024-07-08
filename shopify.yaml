@@ -1,8 +1,6 @@
 ---
 openapi: 3.0.0
-servers:
-  - url: https://us-central1-chazki-link-dev.cloudfunctions.net/nintendo-cf-integrations/api
-    description: Shopify development 
+servers: 
   - url: https://us-central1-chazki-link-beta.cloudfunctions.net/nintendo-cf-integrations/api
     description: Shopify beta 
   - url: https://us-central1-chazki-link.cloudfunctions.net/nintendo-cf-integrations/api

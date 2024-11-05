@@ -3267,11 +3267,11 @@
   },
   "servers": [
     {
-      "url": "https://sandbox.lok-hub.com/api/v2",
+      "url": "https://gateway-dev.chazki.com/api/v2",
       "description": "Sandbox server"
     },
     {
-      "url": "https://robot.lok-hub.com/api/v2",
+      "url": "https://lockers-gateway.chazki.com/api/v2",
       "description": "Production server"
     }
   ],
